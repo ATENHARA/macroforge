@@ -5,6 +5,7 @@ your ``macros.json``, only downloads what is missing and asks before changing an
 """
 from __future__ import annotations
 
+import getpass
 import json
 import os
 import shutil
@@ -12,16 +13,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from . import agent, startup
+from . import agent, keystore, llm, startup
 from .errors import MacroForgeError, ValidationError
 from .fetch import fetch_all, installed_build
 from .fsutil import atomic_write_text
 from .install import build_addon, check_addons_dir, create_slots, install
-from .settings import Settings
+from .settings import DEFAULT_LLM_URL, Settings, validate_llm_url
 from .spec import load_spec
 from .watcher import load_replies
 
 SLOT_COUNT = 120
+LOCAL_LLM_URL = "http://localhost:11434/v1"  # Ollama; LM Studio uses port 1234
 
 
 @dataclass(frozen=True)
@@ -144,10 +146,12 @@ class Wizard:
     def __init__(self, root: Path, ask: Callable[[str], str] = input,
                  out: Callable[[str], None] = print, assume_yes: bool = False,
                  fetch: Callable[..., None] = fetch_all,
-                 roots: list[Path] | None = None) -> None:
+                 roots: list[Path] | None = None,
+                 ask_secret: Callable[[str], str] = getpass.getpass) -> None:
         self.root = Path(root)
         self._ask, self.out, self.fetch, self.roots = ask, out, fetch, roots
         self.assume_yes = assume_yes
+        self.ask_secret = ask_secret
 
     # -- small helpers -----------------------------------------------------------------------
     def yes(self, question: str, default: bool = True) -> bool:
@@ -201,7 +205,9 @@ class Wizard:
         return names[self.choose("Which account folder is yours?", names)]
 
     def run(self, wow_dir: str | None = None, account: str | None = None,
-            skip_fetch: bool = False, requests: bool | None = None) -> int:
+            skip_fetch: bool = False, requests: bool | None = None, backend: str | None = None,
+            llm_url: str | None = None, llm_model: str | None = None,
+            llm_key_env: str | None = None) -> int:
         """Run every step; returns the exit code."""
         self.out("MacroForge setup\n")
         game = self.pick_game(wow_dir)
@@ -213,7 +219,7 @@ class Wizard:
         self.out(f"Game: {game}\nAccount: {shown}\nSaved to {self.root / 'config.json'}\n")
         self.step_data(settings, skip_fetch)
         self.step_addon(settings)
-        self.step_requests(settings, requests)
+        self.step_requests(settings, requests, backend, llm_url, llm_model, llm_key_env)
         self.out("\nAlmost done. If the game is running, fully quit it and start it again (it only "
                  "notices new addon folders at launch).\n"
                  "Then in game: /mf  (apply macros), /mf live  (no reload), /mf ask <request>.\n"
@@ -260,26 +266,177 @@ class Wizard:
         dest, slots = install(settings)
         self.out(f"Installed the addon and {slots} slots in {dest}\n")
 
-    def step_requests(self, settings: Settings, requests: bool | None) -> None:
-        """Optionally set up the watcher that answers ``/mf ask`` (needs the Claude CLI)."""
-        if requests is False:
+    def text(self, question: str, default: str = "") -> str:
+        """Ask for a line of text (Enter takes the default)."""
+        if self.assume_yes:
+            return default
+        answer = self._ask(f"{question}{f' [{default}]' if default else ''}: ").strip()
+        return answer or default
+
+    def step_requests(self, settings: Settings, requests: bool | None, backend: str | None = None,
+                      llm_url: str | None = None, llm_model: str | None = None,
+                      llm_key_env: str | None = None) -> None:
+        """Optionally set up the watcher that answers ``/mf ask``, with the AI of your choice."""
+        if requests is False or backend == "skip":
             return
+        if backend is None and requests is None:
+            self.out("In-game requests (optional)\n"
+                     "  With this you type what you want in the game, for example\n"
+                     "      /mf ask a macro that heals my mouseover, otherwise my target\n"
+                     "  and an AI writes the macro for you. It needs a small helper program (the\n"
+                     "  \"watcher\") that runs hidden on this PC and starts with Windows.\n")
+            if not self.yes("Set up in-game requests now?"):
+                return
+        if backend is None:
+            backend = ("claude", "openai", "local")[self.choose(
+                "Which AI should write your macros? Only your request, your spell list and your\n"
+                "macros are sent to it.",
+                ["Claude (Anthropic): needs a Claude account and the free Claude Code program",
+                 "ChatGPT / OpenAI or another online service: needs an API key from that service,\n"
+                 "     which bills you (usually a few cents per request)",
+                 "An AI running on this PC (Ollama or LM Studio): free; nothing leaves this PC"])]
+        if backend == "claude":
+            if not self.setup_claude(settings):
+                return
+        else:
+            settings = self.setup_chat(settings, backend == "local", llm_url, llm_model,
+                                       llm_key_env)
+        target = startup.install_startup(settings, settings.root / "macroforge.py", True)
+        self.out(f"The watcher is running (a hidden program, pythonw.exe) and will start with "
+                 f"Windows ({target}).\n"
+                 "In game: click the minimap button, or type /mf ask <what you want>.\n"
+                 "To remove it later: python macroforge.py startup --remove\n"
+                 f"Log: {settings.data / 'watcher.log'}\n")
+
+    def setup_claude(self, settings: Settings) -> bool:
+        """The Claude CLI path; returns False if it cannot be used yet."""
         try:
             exe = agent.find_claude(settings)
         except MacroForgeError:
             exe = ""
         if not exe:
-            self.out("Optional: /mf ask (type requests in game) needs the free Claude Code CLI. "
-                     "Install it, sign in, then run setup again:\n"
-                     "  PowerShell:  irm https://claude.ai/install.ps1 | iex\n"
-                     "  then:        python macroforge.py login\n")
-            return
-        if requests is None and not self.yes(
-                "Set up /mf ask now? (a small program on this PC answers in-game requests)"):
-            return
-        if not self.assume_yes and self.yes("Sign in to Claude now? (skip if already signed in)",
+            self.out("Claude needs the free Claude Code program, which is not installed yet.\n"
+                     "  1. Install it (PowerShell):  irm https://claude.ai/install.ps1 | iex\n"
+                     "  2. Sign in:                  python macroforge.py login\n"
+                     "  3. Run setup again.\n"
+                     "Or run setup again and pick a different AI.\n")
+            return False
+        if not self.assume_yes and self.yes("Sign in to Claude now? (say no if you already did)",
                                             False):
             agent.login(settings)
-        target = startup.install_startup(settings, settings.root / "macroforge.py", True)
-        self.out(f"The watcher is running and will start with Windows ({target}).\n"
-                 f"Log: {settings.data / 'watcher.log'}\n")
+        write_config(self.root, {"agent_backend": "claude"})
+        return True
+
+    def setup_chat(self, settings: Settings, local: bool, url: str | None, model: str | None,
+                   key_env: str | None) -> Settings:
+        """Configure an OpenAI-style endpoint (online or on this PC) and test the connection."""
+        if not url:
+            self.out(("Address of your local AI server. The default is Ollama's; LM Studio's is\n"
+                      "usually http://localhost:1234/v1." if local else
+                      "Address of the AI service's API. The default is OpenAI's; for another\n"
+                      "service use the address in its documentation (https://...).") + "\n")
+        url = url or self.ask_valid_url(LOCAL_LLM_URL if local else DEFAULT_LLM_URL)
+        validate_llm_url(url)
+        if not model:
+            self.out("The model is the exact name of the AI model to use. " + (
+                "Run `ollama list` (or look in LM Studio) to see yours." if local else
+                "It is listed in your provider's documentation.") + "\n")
+        model = model or self.text("Model name")
+        while not model and not self.assume_yes:
+            model = self.text("A model name is required")
+        if not model:
+            raise ValidationError("a model name is required (--llm-model)")
+        updates = {"agent_backend": "openai", "llm_base_url": url, "agent_model": model}
+        if not local:
+            env_name = key_env or settings.llm_api_key_env
+            if key_env:
+                updates["llm_api_key_env"] = key_env
+            self.save_key(env_name)
+        write_config(self.root, updates)
+        settings = Settings.load(self.root)
+        self.out("Testing the connection (this sends one short test message to the AI)...")
+        try:
+            self.out("Connection OK: " + llm.check_connection(settings) + "\n")
+        except MacroForgeError as exc:
+            self.out(f"The AI did not answer: {exc}\n"
+                     "Most often the key, the address or the model name is wrong. Fix config.json\n"
+                     "if needed, then test again with: python macroforge.py llm-test\n")
+            if not self.yes("Finish setup anyway? (you can fix this later)", True):
+                raise ValidationError("setup stopped: the AI did not answer") from None
+        return settings
+
+    def text(self, question: str, default: str = "") -> str:
+        """Ask for a line of text (Enter takes the default)."""
+        if self.assume_yes:
+            return default
+        answer = self._ask(f"{question}{f' [{default}]' if default else ''}: ").strip()
+        return answer or default
+
+    def ask_valid_url(self, default: str) -> str:
+        """Ask for the server address until it is acceptable."""
+        while True:
+            url = self.text("Server address (Enter for the default)", default)
+            try:
+                return validate_llm_url(url)
+            except MacroForgeError as exc:
+                if self.assume_yes:
+                    raise
+                self.out(str(exc))
+
+    def have_key(self, name: str) -> bool:
+        """True if a key is already available (environment variable or Credential Manager)."""
+        try:
+            return bool(os.environ.get(name) or keystore.load(name))
+        except keystore.KeystoreError:
+            return False
+
+    def save_key(self, env_name: str) -> None:
+        """Let the user choose where the API key lives (never in config.json)."""
+        if self.have_key(env_name):
+            self.out("An API key is already saved for this; using it.")
+            return
+        if self.assume_yes:
+            self.out("No API key saved. Run setup again to enter it, or set the environment "
+                     f"variable {env_name}, then restart the watcher.")
+            return
+        choice = self.choose(
+            "Your API key works like a password for your account on that service: whoever has\n"
+            "it can spend your credit. Where should it be kept? MacroForge never writes it to\n"
+            "config.json, shows it on screen or logs it, and sends it only to the address above.",
+            ["Windows Credential Manager (recommended)\n"
+             "     Windows' encrypted vault for saved passwords. Only your Windows user account\n"
+             "     can read it, and it is not in any file or in other programs' environment.\n"
+             "     Setup saves it for you. You can see or delete it under Control Panel >\n"
+             '     Credential Manager > Windows Credentials (the entry is "MacroForge:...").',
+             "An environment variable that you set yourself\n"
+             "     Setup changes nothing on your PC. You create a Windows variable called\n"
+             f"     {env_name} whose value is the key. It is simple and standard, but\n"
+             "     the key is stored as plain text and every program you start can read it.",
+             "Skip for now\n     Run setup again whenever you have the key."])
+        if choice == 0:
+            self.save_key_in_vault(env_name)
+        elif choice == 1:
+            self.out('To set it: press the Windows key, type "environment variables", open\n'
+                     '"Edit environment variables for your account", click New, enter\n'
+                     f"{env_name} as the name and your key as the value, then sign out and\n"
+                     "back in (or restart the watcher).")
+        else:
+            self.out("No key saved. Run setup again to add it, or set the environment variable "
+                     f"{env_name}.")
+
+    def save_key_in_vault(self, env_name: str) -> None:
+        """Ask for the key (hidden) and save it in Windows Credential Manager."""
+        key = self.ask_secret("Paste your API key (nothing is shown while you type), or press "
+                              "Enter to add it later: ").strip()
+        if not key:
+            self.out(f"No key saved. Run setup again to add it, or set the environment variable "
+                     f"{env_name}.")
+            return
+        try:
+            keystore.store(env_name, key)
+        except keystore.KeystoreError as exc:
+            self.out(f"Could not save the key ({exc}). Set the environment variable {env_name} "
+                     "yourself instead, then restart the watcher.")
+            return
+        self.out("Saved in Windows Credential Manager. (The key never appears in this window or in "
+                 "any file.)")

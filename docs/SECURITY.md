@@ -13,7 +13,8 @@ sensitive, describe it without a working exploit first).
 | `<wow>/WTF/Account/<acct>/.../macros-cache.txt` | only `cache --write`, game closed | merged macros; the old file is copied to `.bak` first |
 | `%APPDATA%\...\Startup\MacroForge Watcher.vbs` | only `startup` and `setup` (if you accept) | launcher for the watcher; `startup --remove` deletes only this file |
 | `%LOCALAPPDATA%\macroforge-agent\runs\` | the watcher | throwaway per-request workspaces, deleted afterwards |
-| network | `fetch` and `setup` only | https to `wago.tools`, `api.github.com`, `github.com`, `githubusercontent.com` |
+| Windows Credential Manager | `setup`, only if you pick an online AI | one entry `MacroForge:<variable name>` holding your API key; delete it in Control Panel > Credential Manager |
+| network | `fetch` and `setup`; the watcher if you use `agent_backend: openai` | `fetch`/`setup`: https to `wago.tools`, `api.github.com`, `github.com`, `githubusercontent.com`. The watcher: only the `llm_base_url` you configured |
 
 The addon has no network access (the game does not allow it) and never runs a macro. It calls
 `CreateMacro`/`EditMacro`/`DeleteMacro` for the macros named in its data file and `LoadAddOn` for its own
@@ -33,7 +34,7 @@ Folders that are links (symlinks or junctions) are refused for the AddOns folder
 | saved variables (`MacroForge.lua`) | the game, in a user-writable folder | hardened parser: size, depth and number-length caps, only `ValidationError` on bad input, fuzz-tested. Anything else that goes wrong is logged and the watcher keeps running |
 | request screenshots | the game's `Screenshots` folder (user-writable) | only `.tga` files from the last 10 minutes; picture size capped (40 million pixels); accepted only if a strip with the right header, length and checksum is found. The decoded fields then get the same validation as any request. Handled pictures (and a JPEG written within 5 seconds after one) are deleted; a locked file is retried, then reported, never fatal |
 | requests | whatever `/mf ask` drew or saved | `id`, `level`, `char` and `class` validated (class from a fixed list, so it can never become a path); text capped and stripped of control characters; a bad request is answered or ignored, never fatal |
-| agent output | the Claude CLI | untrusted: parsed as JSON and validated like `macros.json`. Agent-written macros may only use a **fixed allowlist** (the wiki's command list plus a few aliases, minus the blocked commands, and only real conditionals); a client probe can narrow the list, never widen it. New `remove` entries must name macros already in `macros.json`. The reply sent to the game starts with a change summary **computed from the real diff**, followed by the model's text reduced to ASCII with `\|` removed |
+| agent output | the Claude CLI or the chat model | untrusted: parsed as JSON and validated like `macros.json`. Agent-written macros may only use a **fixed allowlist** (the wiki's command list plus a few aliases, minus the blocked commands, and only real conditionals); a client probe can narrow the list, never widen it. New `remove` entries must name macros already in `macros.json`. The reply sent to the game starts with a change summary **computed from the real diff**, followed by the model's text reduced to ASCII with `\|` removed |
 | downloads | the network | https only, host allowlist (also for redirects), size caps, content checks (CSV header), `.part` file renamed only on success |
 | data and slot files read by the addon | `install` | validated again in Lua: types, lengths, numeric ids; one bad entry cannot stop the others; text shown in chat has `\|` doubled |
 
@@ -55,10 +56,31 @@ There is a single-instance lock, a persisted hourly rate limit and an audit log 
 file outside the workspace and edit another one. The CLI refused ("outside ... `--restricted` confines the
 file tools") and the files were untouched.
 
+### Other AIs (OpenAI-style endpoints)
+With `agent_backend: openai` the watcher sends one HTTPS request to the address in `llm_base_url` instead of
+running the CLI. The model has **no tools at all**: it can only return text, which is parsed as a change-set,
+merged into `macros.json` and then validated exactly like agent output above (one repair retry at most).
+- **What is sent:** your request, the character's name, class, level, known spells and pet, your macros for
+  that character and the account-wide ones, and the rules text. A cloud provider receives this under your
+  account; a model on this PC (Ollama, LM Studio) keeps it on the PC.
+- **The key:** `setup` offers two places, with the vault first. Windows Credential Manager (recommended)
+  is encrypted by Windows for your user account, with no registry edit, no file and no presence in any
+  program's environment. Or an environment variable that you set yourself (plain text, readable by every
+  program you start); setup changes nothing for that choice. A variable named in `llm_api_key_env` overrides
+  the vault. The key is never stored in `config.json`, logs, replies or error messages
+  (a key echoed by a server is redacted), is never printed, and is sent only to your `llm_base_url`. Any
+  program that runs as your Windows user could still ask Credential Manager for it, as with any saved
+  password, so treat a compromised user account as lost.
+- **Address rules:** https only; plain http only for `localhost`, `127.0.0.1` or `::1`; no user name or
+  password in the URL; redirects are never followed; response size and time are capped.
+- **No dollar cap:** providers do not report cost, so only the hourly request limit and your provider's own
+  limits protect your bill.
+
 ## Your data
 `data/watch.log`, `data/watcher.log`, `data/replies.json` and `data/backups/` hold your requests, replies,
 character names and costs. They stay in the MacroForge folder and are excluded from git. Requests, your
-spell list and the macros go to the Claude service under your own account; nothing is sent anywhere else.
+spell list and the macros go to the AI you chose (Claude under your own account, or the endpoint you configured);
+nothing is sent anywhere else.
 The repository's tests refuse commits that contain personal details (`tests/test_privacy.py`).
 
 ## Residual risks (accepted)

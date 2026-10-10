@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from . import agent, shotcheck, setup, startup, watcher
+from . import agent, llm, setup, shotcheck, startup, watcher
 from .cache import stage_caches
 from .checker import run_checks
 from .errors import MacroForgeError, ValidationError
@@ -191,7 +191,17 @@ def cmd_setup(settings: Settings | None, args: argparse.Namespace) -> int:
     wizard = setup.Wizard(Path(os.environ.get("MACROFORGE_HOME") or DEFAULT_ROOT),
                           assume_yes=args.yes)
     return wizard.run(args.wow_dir, args.account, args.skip_fetch,
-                      False if args.no_requests else None)
+                      False if args.no_requests else None, args.backend, args.llm_url,
+                      args.llm_model, args.llm_key_env)
+
+
+def cmd_llm_test(settings: Settings, args: argparse.Namespace) -> int:
+    """Send one tiny request to the configured chat endpoint."""
+    if settings.agent_backend != "openai":
+        raise ValidationError('agent_backend is "claude"; set it to "openai" (see README) to test '
+                              "a chat endpoint")
+    print(llm.check_connection(settings))
+    return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -246,6 +256,12 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--yes", action="store_true", help="take the default answer to every question")
     sp.add_argument("--skip-fetch", action="store_true", help="do not download game data")
     sp.add_argument("--no-requests", action="store_true", help="skip the /mf ask watcher")
+    sp.add_argument("--backend", choices=["claude", "openai", "local", "skip"],
+                    help="AI for /mf ask: Claude, a cloud service, or a model on this PC")
+    sp.add_argument("--llm-url", help="chat server address (https, or http for localhost)")
+    sp.add_argument("--llm-model", help="model name")
+    sp.add_argument("--llm-key-env", help="name of the environment variable that holds the API key")
+    add("llm-test", cmd_llm_test, "send one tiny request to the configured OpenAI-style endpoint")
     add("shotcheck", cmd_shotcheck,
         "decode the request strip in the newest TGA screenshot (diagnostic)")
     return parser

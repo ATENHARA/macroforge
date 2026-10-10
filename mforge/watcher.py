@@ -15,10 +15,12 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Callable
 
 from . import agent as agent_mod
+from . import llm
 from .assets import load_toml
 from .checker import check_spec
 from .errors import MacroForgeError, ValidationError
@@ -229,8 +231,15 @@ def publish(settings: Settings, req_id: int, reply: str) -> str:
     return entry["text"]
 
 
+def default_runner(settings: Settings) -> Callable:
+    """The function that turns a request into macros: the Claude CLI or an OpenAI-style endpoint."""
+    if settings.agent_backend == "openai":
+        return partial(llm.run_chat, check=lambda text: _evaluate(settings, text))
+    return agent_mod.run_agent
+
+
 def handle_request(settings: Settings, raw: object, export: dict | None, state: WatchState,
-                   runner: Callable = agent_mod.run_agent,
+                   runner: Callable | None = None,
                    now: Callable[[], float] = time.time) -> str | None:
     """Answer one request. Returns the reply sent to the game, or None if it was ignored."""
     allowed = frozenset(load_toml("classes.toml")["classes"])
@@ -258,7 +267,7 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
         try:
             remember_class(settings, req)
             backup_name = backup_spec(settings).name
-            result = runner(settings, req, export)
+            result = (runner or default_runner(settings))(settings, req, export)
             usage = result.usage
             reply = agent_mod.extract_reply(result.text)
             candidate, warnings, summary = _evaluate(settings, result.spec_text)
@@ -280,7 +289,7 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
 
 
 def process_new_requests(settings: Settings, state: WatchState,
-                         runner: Callable = agent_mod.run_agent,
+                         runner: Callable | None = None,
                          now: Callable[[], float] = time.time) -> int:
     """Handle every unanswered request in the saved variables. Returns how many ran."""
     try:
@@ -311,7 +320,7 @@ def process_new_requests(settings: Settings, state: WatchState,
 
 
 def process_new_shots(settings: Settings, state: WatchState, scanner: ShotScanner,
-                      runner: Callable = agent_mod.run_agent,
+                      runner: Callable | None = None,
                       now: Callable[[], float] = time.time) -> int:
     """Handle requests that arrived as screenshots. Returns how many ran."""
     handled = 0
@@ -373,13 +382,17 @@ def configure_logging(settings: Settings) -> None:
     root.setLevel(logging.INFO)
 
 
-def run_watcher(settings: Settings, runner: Callable = agent_mod.run_agent,
+def run_watcher(settings: Settings, runner: Callable | None = None,
                 sleep: Callable[[float], None] = time.sleep, now: Callable[[], float] = time.time,
                 stop: Callable[[], bool] = lambda: False, poll_seconds: float = 2.0,
                 settle_seconds: float = 1.5) -> None:
     """Watch the saved-variables file and answer requests until ``stop()`` is true."""
     configure_logging(settings)
     settings.data.mkdir(exist_ok=True)
+    runner = runner or default_runner(settings)
+    if settings.agent_backend == "openai":
+        llm.require_ready(settings)
+        log.info("AI: %s at %s", settings.agent_model, settings.llm_base_url)
     with WatcherLock(settings.data / "watcher.pid"):
         state = WatchState.load(settings.data / "watch_state.json")
         log.info("watching %s", settings.saved_vars_file)

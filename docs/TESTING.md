@@ -2,7 +2,7 @@
 
 ## Automated (no game, no network, no real Claude)
 ```
-python -m unittest discover -s tests          # everything: about 290 tests, about a minute
+python -m unittest discover -s tests          # everything: about 340 tests, about a minute and a half
 python -m unittest tests.test_validate -v     # one module
 ```
 Only the standard library is used (the Lua tests also need LuaJIT, below).
@@ -17,12 +17,14 @@ Only the standard library is used (the Lua tests also need LuaJIT, below).
 | `test_shots` | requests arriving as screenshots: scanning, deleting handled pictures (including locked files), the detached watcher launch |
 | `test_strip` | the request strip: encoder/decoder round trips, the TGA reader, and the Lua encoder producing the same cells as the Python one |
 | `test_pets` | the pet-ability table built from the game data and handed to the agent |
-| `test_setup` | the setup wizard against a fake game folder: finding the game and account, menus, data download or refresh, unwritable AddOns folder, optional watcher setup |
+| `test_setup` | the setup wizard against a fake game folder: finding the game and account, menus, data download or refresh, unwritable AddOns folder, optional watcher setup, choosing Claude, GPT or a local model |
+| `test_keystore` | the Credential Manager wrapper (a real save, read, overwrite and delete of a throwaway entry on Windows) and how the chat backend finds a key |
+| `test_llm` | the OpenAI-style backend against a fake chat server on this PC: prompt contents, JSON answers and repair retries, merge rules, HTTP errors, timeouts, redirects, key handling and redaction, settings validation, `llm-test` |
 | `test_fetch_startup_cli` | downloads from a local server (oversize, wrong content, hostile redirect), the startup launcher, command-line smoke tests |
 | `test_review_findings` | one regression test per finding of the independent security review |
 | `test_lua_addon` | the Lua addon against a fake WoW API, and the Lua 5.1 syntax scan |
 | `test_style` | line length, docstrings, unused imports, no `SystemExit` or import-time I/O in the library |
-| `test_privacy` | no emails, Windows user paths, account folder names or other personal details in tracked files (plus a private list in `.git/pii-patterns.txt`, see `CLAUDE.md`) |
+| `test_privacy` | no emails, Windows user paths, account folder names or other personal details in tracked files (plus a private list in `.git/pii-patterns.txt`, see `AGENTS.md`) |
 
 To change a golden file on purpose: `set UPDATE_GOLDEN=1`, run the tests once, review the diff, commit.
 

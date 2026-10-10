@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import unittest
 from pathlib import Path
@@ -268,6 +269,189 @@ class SetupCommandTests(SetupCase):
         data = (Path(__file__).resolve().parent.parent / "setup.cmd").read_bytes()
         self.assertIn(b"macroforge.py setup", data)
         self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
+
+
+class ChatSetupTests(SetupCase):
+    """Choosing OpenAI/GPT or a local model during setup."""
+
+    KEY = "sk-test-secret-0123456789"
+
+    def setUp(self):
+        super().setUp()
+        from tests.test_llm import FakeLLM
+        self.server = FakeLLM()
+        self.addCleanup(self.server.close)
+        env = mock.patch.dict(os.environ)
+        env.start()
+        self.addCleanup(env.stop)
+        os.environ.pop("MACROFORGE_API_KEY", None)
+        self.saved: dict[str, str] = {}  # a stand-in for Windows Credential Manager
+        self.secrets = [self.KEY]
+        for name, fake in (("store", self.saved.__setitem__),
+                           ("load", lambda name: self.saved.get(name, ""))):
+            patch = mock.patch.object(setup_mod.keystore, name, fake)
+            patch.start()
+            self.addCleanup(patch.stop)
+        patcher = mock.patch.object(setup_mod.startup, "install_startup", return_value=Path("l.vbs"))
+        self.installer = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def chat_wizard(self, **kw):
+        return self.wizard(ask_secret=self.secret, **kw)
+
+    def secret(self, prompt: str) -> str:
+        """The hidden-input prompt: record its text (never the answer) and return the next key."""
+        self.lines.append(prompt)
+        return self.secrets.pop(0) if self.secrets else ""
+
+    def run_menu(self, answers, wizard=None):
+        self.answers = list(answers)
+        return (wizard or self.chat_wizard()).run(wow_dir=str(self.sb.wow), account=ACCOUNT,
+                                                  skip_fetch=True)
+
+    def test_cloud_service_with_a_key(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "gpt-test", "1"])
+        config = self.config()
+        self.assertEqual((config["agent_backend"], config["agent_model"], config["llm_base_url"]),
+                         ("openai", "gpt-test", self.server.url))
+        self.assertNotIn("llm_api_key_env", config)
+        self.assertEqual(self.saved, {"MACROFORGE_API_KEY": self.KEY})
+        self.assertNotIn("MACROFORGE_API_KEY", os.environ)  # not put in anyone's environment
+        self.assertEqual(self.server.requests[0]["headers"]["Authorization"], "Bearer " + self.KEY)
+        self.assertNotIn(self.KEY, json.dumps(config) + self.text())
+        self.assertIn("Connection OK", self.text())
+        self.installer.assert_called_once()
+
+    def test_local_model_needs_no_key(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "3", self.server.url, "llama-test"])
+        self.assertEqual(self.config()["agent_model"], "llama-test")
+        self.assertEqual((self.saved, self.secrets), ({}, [self.KEY]))  # no key asked for or saved
+        self.assertIn("http://localhost:11434/v1", self.text())  # the Ollama address was offered
+        self.assertNotIn("Authorization", self.server.requests[0]["headers"])
+
+    def test_a_bad_address_is_asked_again(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "3", "http://example.com/v1", self.server.url, "m"])
+        self.assertIn("must be https", self.text())
+        self.assertEqual(self.config()["llm_base_url"], self.server.url)
+
+    def test_a_model_name_is_required(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "3", self.server.url, "", "", "finally"])
+        self.assertEqual(self.config()["agent_model"], "finally")
+
+    def test_an_existing_key_is_reused(self):
+        os.environ["MACROFORGE_API_KEY"] = "already-there-0123456789"
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m"])
+        self.assertIn("already saved", self.text())
+        self.assertEqual((self.saved, self.secrets), ({}, [self.KEY]))
+
+    def test_a_key_already_in_credential_manager_is_reused(self):
+        self.saved["MACROFORGE_API_KEY"] = "from-the-vault-0123456789"
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m"])
+        self.assertIn("already saved", self.text())
+        self.assertEqual(self.secrets, [self.KEY])  # not asked again
+        self.assertEqual(self.server.requests[0]["headers"]["Authorization"],
+                         "Bearer from-the-vault-0123456789")
+
+    def test_the_setup_text_explains_what_is_asked_and_how_the_key_is_protected(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m", "1"])
+        text = self.text()
+        for phrase in ("/mf ask", "watcher", "Which AI should write your macros", "bills you",
+                       "exact name of the AI model", "Credential Manager", "recommended",
+                       "environment variable that you set yourself",
+                       "shows it on screen or logs it",
+                       "nothing is shown while you type", "Connection OK"):
+            self.assertIn(phrase.lower(), text.lower(), phrase)
+
+    def test_the_vault_is_offered_first_and_the_environment_variable_second(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m", "1"])
+        text = self.text()
+        self.assertLess(text.index("Windows Credential Manager (recommended)"),
+                        text.index("An environment variable that you set yourself"))
+        self.assertLess(text.index("An environment variable that you set yourself"),
+                        text.index("Skip for now"))
+
+    def test_choosing_the_environment_variable_changes_nothing_and_gives_steps(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m", "2"])
+        self.assertEqual((self.saved, self.secrets), ({}, [self.KEY]))  # nothing stored, no key asked
+        self.assertIn("Edit environment variables for your account", self.text())
+        self.assertIn("MACROFORGE_API_KEY", self.text())
+
+    def test_choosing_skip_saves_nothing(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m", "3"])
+        self.assertEqual((self.saved, self.secrets), ({}, [self.KEY]))
+        self.assertIn("No key saved", self.text())
+
+    def test_pressing_enter_instead_of_pasting_a_key_saves_nothing(self):
+        self.secrets = [""]
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m", "1"])
+        self.assertEqual(self.saved, {})
+        self.assertIn("No key saved", self.text())
+
+    def test_if_credential_manager_fails_the_user_is_told_what_to_do_instead(self):
+        self.server.reply("ok")
+
+        def broken(name, value):
+            raise setup_mod.keystore.KeystoreError("access denied")
+
+        with mock.patch.object(setup_mod.keystore, "store", broken):
+            self.run_menu(["y", "2", self.server.url, "m", "1"])
+        self.assertIn("Could not save the key", self.text())
+        self.assertIn("MACROFORGE_API_KEY", self.text())
+        self.assertNotIn(self.KEY, self.text())
+
+    def test_a_failing_connection_still_saves_the_config_and_can_continue(self):
+        self.server.respond(401, {"error": {"message": "bad key"}})
+        self.run_menu(["y", "2", self.server.url, "m", "1"])
+        self.assertIn("did not answer", self.text())
+        self.assertEqual(self.config()["agent_backend"], "openai")
+        self.installer.assert_called_once()
+
+    def test_declining_after_a_failed_connection_stops_before_the_watcher(self):
+        self.server.respond(401, {"error": {"message": "bad key"}})
+        with self.assertRaises(ValidationError):
+            self.run_menu(["y", "2", self.server.url, "m", "1", "n"])
+        self.installer.assert_not_called()
+
+    def test_non_interactive_flags(self):
+        self.server.reply("ok")
+        wizard = self.chat_wizard(assume_yes=True)
+        wizard.run(skip_fetch=True, backend="local", llm_url=self.server.url, llm_model="m")
+        self.assertEqual(self.config()["agent_backend"], "openai")
+        self.assertEqual(self.lines.count("Number: "), 0)  # nothing was asked
+        self.installer.assert_called_once()
+
+    def test_a_custom_key_variable_name_is_saved_in_the_config(self):
+        self.server.reply("ok")
+        self.chat_wizard(assume_yes=True).run(skip_fetch=True, backend="openai",
+                                              llm_url=self.server.url, llm_model="m",
+                                              llm_key_env="MY_AI_KEY")
+        self.assertEqual(self.config()["llm_api_key_env"], "MY_AI_KEY")
+        self.assertIn("MY_AI_KEY", self.text())  # told how to supply the key
+
+    def test_non_interactive_without_a_model_is_an_error(self):
+        with self.assertRaises(ValidationError):
+            self.chat_wizard(assume_yes=True).run(skip_fetch=True, backend="local",
+                                                  llm_url=self.server.url)
+
+    def test_skip_and_claude(self):
+        self.chat_wizard(assume_yes=True).run(skip_fetch=True, backend="skip")
+        self.installer.assert_not_called()
+        with mock.patch.object(setup_mod.agent, "find_claude", return_value="claude.exe"):
+            self.chat_wizard(assume_yes=True).run(skip_fetch=True, backend="claude")
+        self.assertEqual(self.config()["agent_backend"], "claude")
+        self.installer.assert_called_once()
+
 
 
 if __name__ == "__main__":

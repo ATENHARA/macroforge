@@ -20,7 +20,7 @@ from pathlib import Path
 from string import Template
 
 from .assets import read_text
-from .errors import AgentError, MacroForgeError
+from .errors import AgentError, ConfigError, MacroForgeError
 from .fsutil import atomic_write_text, system_exe, which_absolute
 from .settings import Settings
 from .spells import class_spells, pet_abilities
@@ -38,6 +38,7 @@ ENV_ALLOW = {
 }
 MAX_OUTPUT_BYTES = 5_000_000
 MAX_SPEC_BYTES = 1_000_000
+MAX_CONTEXT_BYTES = 200_000
 
 
 class AgentTimeout(AgentError):
@@ -133,9 +134,8 @@ def prepare_workspace(settings: Settings, req: Request) -> Path:
     runs.mkdir(parents=True, exist_ok=True)
     workspace = Path(tempfile.mkdtemp(prefix=f"r{req.id}-", dir=runs))
     shutil.copy2(settings.spec, workspace / "macros.json")
-    brief = settings.root / "reference" / "agent-brief.md"
-    if brief.exists():
-        shutil.copy2(brief, workspace / "agent-brief.md")
+    if settings.agent_context_file or settings.context_file.exists():
+        (workspace / "agent-brief.md").write_text(read_context(settings), encoding="utf-8")
     table = ensure_spell_table(settings, req.cls)
     if table and table.exists():
         shutil.copy2(table, workspace / "spells.json")
@@ -159,6 +159,19 @@ def build_prompt(req: Request, export: dict | None) -> str:
         lines.append(f"Current pet: family {pet.get('family')}, abilities {pet.get('actions')}.")
     lines.append("Known spells: " + ", ".join(spells) if spells else "Known spells: unavailable.")
     return "\n".join(lines) + f"\n\nPlayer request:\n{req.text}\n"
+
+
+def read_context(settings: Settings) -> str:
+    """The rules file the AI reads: ``agent_context_file`` if configured, else the bundled brief."""
+    path = settings.context_file
+    try:
+        if path.stat().st_size > MAX_CONTEXT_BYTES:
+            raise ConfigError(f"{path} is too large to be a context file")
+        return path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        raise ConfigError(f"context file {path} not found (see agent_context_file)") from None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"cannot read context file {path}: {exc}") from None
 
 
 def system_prompt(settings: Settings) -> str:
