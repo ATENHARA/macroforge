@@ -65,14 +65,28 @@ class SettingsTests(unittest.TestCase):
             Settings.load(self.tmp)
         self.assertIn("bogus", logs.output[0])
 
-    def test_account_autodetect(self):
+    def test_every_account_folder_is_covered_unless_one_is_configured(self):
         wow = self.tmp / "_classic_beta_"
-        (wow / "WTF" / "Account" / "ONE").mkdir(parents=True)
-        (wow / "WTF" / "Account" / "SavedVariables").mkdir()
+        root = wow / "WTF" / "Account"
+        (root / "ONE").mkdir(parents=True)
+        (root / "SavedVariables").mkdir()  # the game's shared folder is not an account
         self.write_config(json.dumps({"wow_dir": str(wow)}))
-        self.assertEqual(Settings.load(self.tmp).account, "ONE")
-        (wow / "WTF" / "Account" / "TWO").mkdir()
-        self.assertEqual(Settings.load(self.tmp).account, "YOUR_ACCOUNT_FOLDER")
+        settings = Settings.load(self.tmp)
+        self.assertEqual((settings.account, settings.account_dirs), ("", [root / "ONE"]))
+        (root / "TWO").mkdir()
+        os.utime(root / "ONE", (1_600_000_000, 1_600_000_000))
+        settings = Settings.load(self.tmp)
+        self.assertEqual(settings.account_dirs, [root / "TWO", root / "ONE"])  # newest first
+        self.assertEqual(len(settings.saved_vars_files), 2)
+        self.assertEqual(settings.account_dir, root / "TWO")
+        self.write_config(json.dumps({"wow_dir": str(wow), "account": "ONE"}))
+        self.assertEqual(Settings.load(self.tmp).account_dirs, [root / "ONE"])
+
+    def test_with_no_account_folder_yet_a_placeholder_path_is_used(self):
+        wow = self.tmp / "_classic_beta_"
+        wow.mkdir()
+        self.write_config(json.dumps({"wow_dir": str(wow)}))
+        self.assertEqual(Settings.load(self.tmp).account_dir.name, "YOUR_ACCOUNT_FOLDER")
 
     def test_home_environment_variable(self):
         with mock.patch.dict(os.environ, {"MACROFORGE_HOME": str(self.tmp)}):

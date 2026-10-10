@@ -94,14 +94,15 @@ def _string_list(cfg: dict, key: str, default: list[str]) -> tuple[str, ...]:
     return tuple(value)
 
 
-def detect_account(wow_dir: Path) -> str:
-    """The folder under ``WTF/Account``: auto-detected when there is exactly one."""
-    try:
-        names = [d.name for d in (wow_dir / "WTF" / "Account").iterdir()
-                 if d.is_dir() and d.name != "SavedVariables"]
-    except OSError:
-        names = []
-    return names[0] if len(names) == 1 else "YOUR_ACCOUNT_FOLDER"
+def account_last_used(folder: Path) -> float:
+    """When the game last wrote in an account folder (0 if unknown): the newest folder time."""
+    times = []
+    for path in (folder, folder / "SavedVariables"):
+        try:
+            times.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    return max(times, default=0.0)
 
 
 @dataclass(frozen=True)
@@ -168,14 +169,36 @@ class Settings:
         return self.wow_dir / "Interface" / "AddOns"
 
     @property
+    def account_dirs(self) -> list[Path]:
+        """The account folders this install covers: the configured one, else all of them.
+
+        Newest first. The addon itself is shared by every account (one AddOns folder); the account
+        folders only matter for its saved data. With no account folder yet, a placeholder path.
+        """
+        root = self.wow_dir / "WTF" / "Account"
+        if self.account:
+            return [root / self.account]
+        try:
+            found = [d for d in root.iterdir() if d.is_dir() and d.name != "SavedVariables"]
+        except OSError:
+            found = []
+        found.sort(key=account_last_used, reverse=True)
+        return found or [root / "YOUR_ACCOUNT_FOLDER"]
+
+    @property
     def account_dir(self) -> Path:
-        """``WTF/Account/<account>`` in the game folder."""
-        return self.wow_dir / "WTF" / "Account" / self.account
+        """The configured account folder, or the most recently used one."""
+        return self.account_dirs[0]
+
+    @property
+    def saved_vars_files(self) -> list[Path]:
+        """The addon's saved variables (exports, probe results, requests) of every account."""
+        return [d / "SavedVariables" / "MacroForge.lua" for d in self.account_dirs]
 
     @property
     def saved_vars_file(self) -> Path:
-        """The addon's saved variables (exports, probe results and requests)."""
-        return self.account_dir / "SavedVariables" / "MacroForge.lua"
+        """The saved variables of the configured or most recently used account."""
+        return self.saved_vars_files[0]
 
     @property
     def build_info(self) -> Path:
@@ -208,7 +231,7 @@ class Settings:
         return cls(
             root=root,
             wow_dir=wow_dir,
-            account=_typed(cfg, "account", "", str) or detect_account(wow_dir),
+            account=_typed(cfg, "account", "", str),  # empty = every account folder
             product=_typed(cfg, "product", "", str) or "wow_" + wow_dir.name.strip("_"),
             max_account_macros=_typed(cfg, "max_account_macros", 120, int),
             max_char_macros=_typed(cfg, "max_char_macros", 18, int),

@@ -150,7 +150,7 @@ with its cost. Details: [docs/SECURITY.md](docs/SECURITY.md).
 | Key | Default | Meaning |
 |---|---|---|
 | `wow_dir` | `C:\Program Files (x86)\World of Warcraft\_classic_beta_` | the client folder containing `Interface` and `WTF` |
-| `account` | auto-detected | folder under `WTF/Account` (needed only with several accounts) |
+| `account` | empty = every account | pin one account: its folder name under `WTF\Account` in the game folder (a long number followed by `#1`, not your login). The addon itself always works for all accounts; this only limits whose saved data (your spell list) is read |
 | `product` | derived from `wow_dir` | product name in `.build.info` (`wow_classic_beta`) |
 | `max_account_macros`, `max_char_macros` | 120, 18 | macro slot limits |
 | `claude_path` | auto | full path of `claude.exe` (executed as-is; must exist) |

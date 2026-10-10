@@ -73,7 +73,7 @@ class FindingTheGameTests(SetupCase):
 class WizardTests(SetupCase):
     def test_a_full_run_installs_everything_and_writes_the_config(self):
         self.assertEqual(self.wizard(assume_yes=True).run(skip_fetch=True, requests=False), 0)
-        self.assertEqual(self.config(), {"wow_dir": str(self.sb.wow), "account": ACCOUNT})
+        self.assertEqual(self.config(), {"wow_dir": str(self.sb.wow)})  # every account by default
         self.assertTrue((self.sb.addons / "MacroForge" / "MacroForge.lua").exists())
         self.assertEqual(len(list(self.sb.addons.glob("MacroForge_S*"))), setup_mod.SLOT_COUNT)
         self.assertIn("fully quit", self.text())
@@ -107,7 +107,26 @@ class WizardTests(SetupCase):
     def test_two_accounts_ask_which_one(self):
         (self.sb.wow / "WTF" / "Account" / "OTHER#2").mkdir()
         self.answers = ["1"]
-        self.assertEqual(self.wizard().pick_account(self.sb.wow, None), "OTHER#2")
+        self.assertEqual(self.wizard().pick_account(self.sb.wow, None), "")  # all accounts
+        self.answers = ["2"]
+        self.assertEqual(self.wizard().pick_account(self.sb.wow, None), "OTHER#2")  # the newest
+
+    def test_the_account_menu_lists_the_most_recently_used_first_and_says_how_to_tell(self):
+        account_root = self.sb.wow / "WTF" / "Account"
+        (account_root / "OTHER#2").mkdir()
+        old, new = 1_600_000_000, 1_790_000_000
+        os.utime(account_root / "OTHER#2", (old, old))
+        for path in (account_root / ACCOUNT, self.sb.saved_vars):
+            os.utime(path, (new, new))
+        self.answers = ["2"]
+        self.assertEqual(self.wizard().pick_account(self.sb.wow, None), ACCOUNT)
+        text = self.text()
+        self.assertLess(text.index("All my accounts (recommended)"), text.index("Only " + ACCOUNT))
+        self.assertLess(text.index("Only " + ACCOUNT), text.index("Only OTHER#2"))
+        self.assertIn("most recently used", text)
+        self.assertIn("last used 2020-09-13", text)
+        for phrase in ("not your login or BattleTag", "File Explorer", "WTF\\Account"):
+            self.assertIn(phrase, text)
 
     def test_a_brand_new_game_without_an_account_folder_still_installs(self):
         import shutil
@@ -115,7 +134,7 @@ class WizardTests(SetupCase):
         self.assertEqual(self.wizard(assume_yes=True).run(skip_fetch=True, requests=False), 0)
         self.assertNotIn("account", self.config())
         self.assertTrue((self.sb.addons / "MacroForge" / "MacroForge.lua").exists())
-        self.assertIn("not created yet", self.text())
+        self.assertIn("none yet", self.text())
 
     def test_unknown_game_folder_asks_for_a_path(self):
         self.answers = ['"%s"' % self.sb.wow]
@@ -420,17 +439,36 @@ class ChatSetupTests(SetupCase):
                        "Task Manager", "startup --remove"):
             self.assertIn(phrase, step4)
 
+    def test_all_accounts_is_the_default_and_nothing_is_pinned_in_the_config(self):
+        (self.sb.wow / "WTF" / "Account" / "OTHER#2").mkdir()
+        self.wizard(assume_yes=True).run(skip_fetch=True, requests=False)
+        self.assertNotIn("account", self.config())
+        self.assertIn("Account folders: all 2 found (OTHER#2, TESTACCT)", self.text())
+
+    def test_choosing_one_account_pins_it(self):
+        (self.sb.wow / "WTF" / "Account" / "OTHER#2").mkdir()
+        self.answers = ["2"]
+        self.wizard().run(skip_fetch=True, requests=False)
+        self.assertEqual(self.config()["account"], "OTHER#2")
+        self.assertIn("the one you chose", self.text())
+
+    def test_the_account_flag_still_pins_one(self):
+        self.wizard(assume_yes=True).run(skip_fetch=True, requests=False, account=ACCOUNT)
+        self.assertEqual(self.config()["account"], ACCOUNT)
+
     def test_the_account_folder_is_explained_in_plain_words(self):
         self.run_menu(["n"])
         text = self.text()
         self.assertIn("Account folder: " + ACCOUNT, text)
+        self.assertIn("not your login", text)
         self.assertIn("addon data", text)
 
     def test_the_account_menu_explains_what_to_pick(self):
         (self.sb.wow / "WTF" / "Account" / "OTHER#2").mkdir()
         self.answers = ["1"]
         self.chat_wizard().pick_account(self.sb.wow, None)
-        self.assertIn("pick the one you play on", self.text())
+        self.assertIn("File Explorer", self.text())
+        self.assertIn("works for all of them", self.text())
 
     def test_a_failing_connection_still_saves_the_config_and_can_continue(self):
         self.server.respond(401, {"error": {"message": "bad key"}})

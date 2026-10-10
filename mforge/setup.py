@@ -9,6 +9,7 @@ import getpass
 import json
 import os
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -18,7 +19,7 @@ from .errors import MacroForgeError, ValidationError
 from .fetch import fetch_all, installed_build
 from .fsutil import atomic_write_text
 from .install import build_addon, check_addons_dir, create_slots, install
-from .settings import DEFAULT_LLM_URL, Settings, validate_llm_url
+from .settings import DEFAULT_LLM_URL, Settings, account_last_used, validate_llm_url
 from .spec import load_spec
 from .watcher import load_replies
 
@@ -193,19 +194,46 @@ class Wizard:
                                  [g.label for g in games])].path
 
     def pick_account(self, wow_dir: Path, account: str | None) -> str:
-        """Choose the account folder (like ``<number>#1``); ``""`` means detect it later.
+        """The account folder to use, or ``""`` for every account (the default).
 
-        Nothing in the install needs the account (only the watcher, which reads the saved
-        variables), so a brand-new game with no account folder yet is fine.
+        The addon itself is shared by all accounts; the choice is only about whose saved data
+        (such as your spell list) MacroForge reads. With one account there is nothing to ask.
         """
         if account:
             return account
         names = list_accounts(wow_dir)
-        if not names:
+        if len(names) < 2:
             return ""
-        return names[self.choose(
-            "Which account folder is yours? (The game keeps each account's addon data in its own\n"
-            "folder under WTF\\Account; pick the one you play on.)", names)]
+        folder = wow_dir / "WTF" / "Account"
+        names.sort(key=lambda name: account_last_used(folder / name), reverse=True)
+        labels = ["All my accounts (recommended)\n"
+                  "     MacroForge reads the saved data of every account on this PC."]
+        for number, name in enumerate(names):
+            when = account_last_used(folder / name)
+            stamp = time.strftime("last used %Y-%m-%d %H:%M", time.localtime(when)) if when else ""
+            note = "most recently used" if number == 0 else stamp
+            labels.append(f"Only {name}  ({note})" if note else f"Only {name}")
+        index = self.choose(
+            "You have several WoW accounts on this PC. The addon works for all of them\n"
+            "automatically; this only decides whose saved data (such as your spell list)\n"
+            "MacroForge reads. The names are the game's folder names for your accounts: a long\n"
+            "number followed by #1 (not your login or BattleTag). You can see them in\n"
+            "File Explorer under the game folder, in WTF\\Account.", labels)
+        return "" if index == 0 else names[index - 1]
+
+    def describe_accounts(self, wow_dir: Path, chosen: str) -> str:
+        """The account line shown after step 1."""
+        names = list_accounts(wow_dir)
+        if chosen:
+            head = f"Account folder: {chosen} (the one you chose)"
+        elif not names:
+            head = "Account folder: none yet (the game creates it the first time you log in)"
+        elif len(names) == 1:
+            head = f"Account folder: {names[0]}"
+        else:
+            head = f"Account folders: all {len(names)} found ({', '.join(sorted(names))})"
+        return (head + "\n  (the game's name for your account, a number, not your login. It keeps\n"
+                "  your addon data, such as your spell list, in this folder under WTF\\Account.)")
 
     def run(self, wow_dir: str | None = None, account: str | None = None,
             skip_fetch: bool = False, requests: bool | None = None, backend: str | None = None,
@@ -219,9 +247,7 @@ class Wizard:
         write_config(self.root, {"wow_dir": str(game), **({"account": chosen} if chosen else {})})
         settings = Settings.load(self.root)
         check_writable(check_addons_dir(settings))
-        shown = chosen or "not created yet (found automatically later)"
-        self.out(f"Game: {game}\nAccount folder: {shown}\n"
-                 "  (where the game keeps each account's addon data, such as your spell list)\n"
+        self.out(f"Game: {game}\n{self.describe_accounts(game, chosen)}\n"
                  f"Saved to {self.root / 'config.json'}\n")
         self.step_data(settings, skip_fetch)
         self.step_addon(settings)

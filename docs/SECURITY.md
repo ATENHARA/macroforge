@@ -10,7 +10,7 @@ sensitive, describe it without a working exploit first).
 | the MacroForge folder | always | `macros.json`, `config.json` (also written by `setup`), `data/`, `build/`, `reference/compat-*.md` |
 | `<wow>/Interface/AddOns/MacroForge` and `MacroForge_S###` | `install`, `slots`, `setup` | the addon and its slot addons; links are refused; `setup` stops with a hint if the folder is not writable |
 | `<wow>/Screenshots` | the watcher | reads new `.tga` request pictures; deletes the ones it handled |
-| `<wow>/WTF/Account/<acct>/SavedVariables/MacroForge.lua` | the watcher, `spellbook`, `report` | read only: the addon's saved data (your exported spell list, pet and name, probe results) |
+| `<wow>/WTF/Account/<acct>/SavedVariables/MacroForge.lua` | the watcher, `spellbook`, `report` | read only: the addon's saved data (your exported spell list, pet and name, probe results), for every account folder unless `account` is set |
 | `<wow>/WTF/Account/<acct>/.../macros-cache.txt` | only `cache --write`, game closed | merged macros; the old file is copied to `.bak` first |
 | `%APPDATA%\...\Startup\MacroForge Watcher.vbs` | only `startup` and `setup` (if you accept) | launcher for the watcher; `startup --remove` deletes only this file |
 | `%LOCALAPPDATA%\macroforge-agent\runs\` | the watcher | throwaway per-request workspaces, deleted afterwards |

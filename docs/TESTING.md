@@ -17,6 +17,7 @@ Only the standard library is used (the Lua tests also need LuaJIT, below).
 | `test_shots` | requests arriving as screenshots: scanning, deleting handled pictures (including locked files), the detached watcher launch |
 | `test_strip` | the request strip: encoder/decoder round trips, the TGA reader, and the Lua encoder producing the same cells as the Python one |
 | `test_pets` | the pet-ability table built from the game data and handed to the agent |
+| `test_accounts` | several WoW accounts: the watcher reads every account's saved data, picks the export of the requesting character, and the raw cache route refuses to guess |
 | `test_setup` | the setup wizard against a fake game folder: finding the game and account, menus, data download or refresh, unwritable AddOns folder, optional watcher setup, choosing Claude, GPT or a local model |
 | `test_keystore` | the Credential Manager wrapper (a real save, read, overwrite and delete of a throwaway entry on Windows) and how the chat backend finds a key |
 | `test_llm` | the OpenAI-style backend against a fake chat server on this PC: prompt contents, JSON answers and repair retries, merge rules, HTTP errors, timeouts, redirects, key handling and redaction, settings validation, `llm-test` |

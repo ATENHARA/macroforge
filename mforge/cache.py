@@ -95,6 +95,9 @@ def stage_caches(settings: Settings, spec: dict, write: bool) -> list[str]:
 
     Each replaced file is first copied to ``macros-cache.txt.bak``. Returns the lines to print.
     """
+    if not settings.account and len(settings.account_dirs) > 1:
+        raise ValidationError('several account folders found: set "account" in config.json to '
+                              "the one whose macros should be written")
     jobs = [(settings.account_dir / "macros-cache.txt", spec["account"], ACCOUNT_ID_BASE,
              settings.max_account_macros, "account")]
     messages: list[str] = []

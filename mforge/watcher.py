@@ -31,7 +31,7 @@ from .settings import Settings
 from .shots import GIVE_UP_SECONDS, ShotScanner, cleanup, read_request, retry_stuck
 from .spec import (check_removals, describe_changes, diff_specs, load_spec, read_spec,
                    resolve_spec)
-from .validate import Request, parse_request, sanitize_reply
+from .validate import Request, norm, parse_request, sanitize_reply
 
 log = logging.getLogger("mforge.watcher")
 
@@ -288,34 +288,64 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
     return reply
 
 
+def _mtime(path: Path) -> float | None:
+    """Modification time of a file, or None if it is missing."""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def find_export(settings: Settings, char: str = "") -> dict | None:
+    """The exported spellbook of this character, searching every account's saved data.
+
+    Falls back to the most recently used account's export when no export names the character.
+    """
+    exports = []
+    for path in settings.saved_vars_files:
+        try:
+            data = load_sv(path, "MacroForgeExport")
+        except (ValidationError, OSError):
+            continue
+        if isinstance(data, dict):
+            exports.append(data)
+    wanted = norm(char)
+    for data in exports:
+        first = norm(data.get("char", ""))
+        if wanted and first and wanted.startswith(first):
+            return data
+    return exports[0] if exports else None
+
+
 def process_new_requests(settings: Settings, state: WatchState,
                          runner: Callable | None = None,
                          now: Callable[[], float] = time.time) -> int:
-    """Handle every unanswered request in the saved variables. Returns how many ran."""
-    try:
-        requests = load_sv(settings.saved_vars_file, "MacroForgeRequests")
-        export = load_sv(settings.saved_vars_file, "MacroForgeExport")
-    except (ValidationError, OSError) as exc:
-        log.warning("cannot read saved variables: %s", exc)
-        return 0
-    if isinstance(requests, dict):
-        requests = list(requests.values())
-    if not isinstance(requests, list):
-        return 0
+    """Handle every unanswered request in the saved variables of every account. Returns how many."""
     handled = 0
-    for raw in requests:
-        req_id = raw.get("id") if isinstance(raw, dict) else None
-        if not isinstance(req_id, int) or isinstance(req_id, bool) or req_id in state.handled:
-            continue
+    for path in settings.saved_vars_files:
         try:
-            export_data = export if isinstance(export, dict) else None
-            handle_request(settings, raw, export_data, state, runner, now)
-            handled += 1
-        except Exception:  # the watcher must survive anything a single request does
-            log.exception("request %s failed", req_id)
-        finally:
-            state.handled.add(req_id)
-            state.save()
+            requests = load_sv(path, "MacroForgeRequests")
+            export = load_sv(path, "MacroForgeExport")
+        except (ValidationError, OSError) as exc:
+            log.warning("cannot read saved variables: %s", exc)
+            continue
+        if isinstance(requests, dict):
+            requests = list(requests.values())
+        if not isinstance(requests, list):
+            continue
+        for raw in requests:
+            req_id = raw.get("id") if isinstance(raw, dict) else None
+            if not isinstance(req_id, int) or isinstance(req_id, bool) or req_id in state.handled:
+                continue
+            try:
+                export_data = export if isinstance(export, dict) else None
+                handle_request(settings, raw, export_data, state, runner, now)
+                handled += 1
+            except Exception:  # the watcher must survive anything a single request does
+                log.exception("request %s failed", req_id)
+            finally:
+                state.handled.add(req_id)
+                state.save()
     return handled
 
 
@@ -339,12 +369,7 @@ def process_new_shots(settings: Settings, state: WatchState, scanner: ShotScanne
         if req_id in state.handled:
             continue
         try:
-            export = load_sv(settings.saved_vars_file, "MacroForgeExport")
-        except (ValidationError, OSError):
-            export = None
-        try:
-            handle_request(settings, raw, export if isinstance(export, dict) else None,
-                           state, runner, now)
+            handle_request(settings, raw, find_export(settings, raw["char"]), state, runner, now)
             handled += 1
         except Exception:  # the watcher must survive anything a single request does
             log.exception("request %s failed", req_id)
@@ -395,7 +420,8 @@ def run_watcher(settings: Settings, runner: Callable | None = None,
         log.info("AI: %s at %s", settings.agent_model, settings.llm_base_url)
     with WatcherLock(settings.data / "watcher.pid"):
         state = WatchState.load(settings.data / "watch_state.json")
-        log.info("watching %s", settings.saved_vars_file)
+        log.info("watching the saved data of %d account folder(s): %s",
+                 len(settings.saved_vars_files), ", ".join(d.name for d in settings.account_dirs))
         log.info("In game: /mf ask <request>   (Ctrl+C to stop)")
         last = None
         scanner = ShotScanner(settings.wow_dir / "Screenshots", started=now())
@@ -404,10 +430,7 @@ def run_watcher(settings: Settings, runner: Callable | None = None,
                 process_new_shots(settings, state, scanner, runner, now)
             except Exception:  # nothing a picture contains may stop the watcher
                 log.exception("could not process screenshots")
-            try:
-                mtime = settings.saved_vars_file.stat().st_mtime
-            except OSError:
-                mtime = None
+            mtime = tuple(_mtime(path) for path in settings.saved_vars_files)
             if mtime != last:
                 last = mtime
                 sleep(settle_seconds)  # let the game finish writing
