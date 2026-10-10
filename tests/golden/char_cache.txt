@@ -1,0 +1,4 @@
+VER 3 0100000000000001 "Fear MO" "136183"
+#showtooltip Fear
+/cast [@mouseover,harm,nodead][] Fear
+END

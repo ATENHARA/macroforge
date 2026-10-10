@@ -1,0 +1,19 @@
+{
+  "wow_dir": "C:/Program Files (x86)/World of Warcraft/_classic_beta_",
+  "account": "",
+  "product": "",
+  "max_account_macros": 120,
+  "max_char_macros": 18,
+  "claude_path": "",
+  "agent_model": "",
+  "agent_max_budget_usd": 0.5,
+  "agent_timeout_seconds": 300,
+  "max_requests_per_hour": 10,
+  "max_request_chars": 500,
+  "delete_request_shots": true,
+  "blocked_commands": ["script", "run", "dump", "console"],
+  "fetch_allowed_hosts": ["wago.tools", "api.github.com", "github.com", "githubusercontent.com"],
+  "fetch_allow_http": false,
+  "fetch_wago_url": "https://wago.tools/db2/{table}/csv?build={build}",
+  "fetch_listfile_api": "https://api.github.com/repos/wowdev/wow-listfile/releases/latest"
+}

@@ -1,0 +1,11 @@
+# Macro conditionals from https://warcraft.wiki.gg/wiki/Macro_conditionals (all versions).
+# Unknown conditionals are silently treated as TRUE by the game, so the checker flags anything
+# not in this list (or in the client's probe results).
+conditionals = [
+  "help", "harm", "dead", "exists", "party", "raid", "unithasvehicleui", "combat", "stealth",
+  "mounted", "flying", "swimming", "indoors", "outdoors", "resting", "channeling", "group",
+  "pet", "flyable", "advflyable", "petbattle", "pvpcombat", "vehicleui", "canexitvehicle",
+  "possessbar", "overridebar", "extrabar", "bonusbar", "cursor", "shapeshift", "modifier", "mod",
+  "btn", "button", "form", "stance", "spec", "talent", "known", "equipped", "worn", "actionbar",
+  "bar", "house",
+]

@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: MacroForge slot 2
+## Notes: Load-on-demand data slot for /mf live. Loaded once per UI session.
+## LoadOnDemand: 1
+## DefaultState: enabled
+
+Slot.lua

@@ -1,0 +1,6 @@
+# Class names accepted in requests (lowercase ChrClasses file names). A request naming any other
+# class is rejected before the name is used for a file name or shown to the agent.
+classes = [
+  "warrior", "paladin", "hunter", "rogue", "priest", "deathknight", "shaman", "mage", "warlock",
+  "monk", "druid", "demonhunter", "evoker",
+]

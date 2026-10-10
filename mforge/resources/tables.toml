@@ -1,0 +1,11 @@
+# Game tables `macroforge fetch` downloads from wago.tools, with the columns each must contain.
+# A download whose header lacks these columns is rejected (guards against HTML error pages).
+[tables]
+SpellName = ["ID", "Name_lang"]
+SpellMisc = ["SpellIconFileDataID", "SpellID"]
+Spell = ["ID", "NameSubtext_lang"]
+SpellLevels = ["DifficultyID", "BaseLevel", "SpellLevel", "SpellID"]
+SkillLine = ["ID", "CategoryID", "DisplayName_lang"]
+SkillLineAbility = ["SkillLine", "Spell", "ClassMask"]
+SkillRaceClassInfo = ["SkillID", "ClassMask"]
+ChrClasses = ["ID", "Filename"]

@@ -1,0 +1,7 @@
+VER 3 0000000000000001 "RS_MACRO" "667492"
+/targetexact Foo
+END
+VER 3 0000000000000002 "Tap" "136126"
+#showtooltip Life Tap
+/cast Life Tap
+END

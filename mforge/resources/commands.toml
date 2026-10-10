@@ -1,0 +1,19 @@
+# Slash commands listed on the community wiki's "Macro commands" page
+# (https://warcraft.wiki.gg/wiki/Macro_commands). The page gives no per-version availability;
+# `/mf probe` + `macroforge report` records what a given client really supports.
+# Short forms of listed commands (and the few extra ones macros commonly use). Together with the
+# list below they are the ONLY commands an agent-written macro may use, minus the blocked ones.
+aliases = ["s", "p", "g", "y", "e", "em", "w", "t", "r", "tar", "startattack", "castglyph"]
+
+commands = [
+  "cast", "castsequence", "castrandom", "use", "userandom", "usetoy", "cancelaura", "cancelform",
+  "cancelqueuedspell", "stopcasting", "stopspelltarget", "startattack", "stopattack", "equip",
+  "equipslot", "equipset", "dismount", "assist", "clearfocus", "cleartarget", "focus", "target",
+  "targetexact", "targetenemy", "targetenemyplayer", "targetfriend", "targetfriendplayer",
+  "targetparty", "targetraid", "targetlastenemy", "targetlastfriend", "targetlasttarget",
+  "petassist", "petattack", "petautocastoff", "petautocaston", "petautocasttoggle",
+  "petdefensive", "petdismiss", "petfollow", "petmoveto", "petpassive", "petstay",
+  "petaggressive", "say", "yell", "party", "raid", "guild", "officer", "whisper", "emote",
+  "click", "script", "run", "stopmacro", "dump", "console", "reload", "logout", "random",
+  "targetmarker", "worldmarker", "readycheck",
+]

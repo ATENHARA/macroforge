@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy of this becomes macros.json (personal, not tracked). char = full character name e.g. 'Firstname Surname' (spaces/hyphens/case ignored) or omit for an account-wide macro. icon = number | 'spell:Name' | 'icon:file_name' | omit. The watcher fills in 'classes' automatically from /mf ask; for hand-written macros add \"classes\": {\"Firstname Surname\": \"mage\"} so `check` can verify spell names.",
+  "classes": {},
+  "remove": [],
+  "macros": [
+    {
+      "name": "Auto Attack",
+      "icon": "spell:Attack",
+      "body": "#showtooltip Attack\n/startattack"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+/data/
+/datapack/
+/build/
+/config.json
+/macros.json
+__pycache__/

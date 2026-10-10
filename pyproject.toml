@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "macroforge"
+version = "1.4.0"
+description = "Generate World of Warcraft macros from a spec file and install them with an addon."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.scripts]
+macroforge = "mforge.cli:main"
+
+[tool.setuptools]
+packages = ["mforge"]
+
+[tool.setuptools.package-data]
+mforge = ["resources/*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"

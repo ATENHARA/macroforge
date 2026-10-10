@@ -1,0 +1,16 @@
+# Defaults for settings that can be overridden in config.json.
+
+# Slash commands the headless agent may never put in a macro. The first group run Lua code
+# (/dump and /tinspect evaluate their argument like /script); the rest can quit the game, change
+# guild membership or confirm pop-ups on your behalf.
+blocked_commands = [
+  "script", "run", "dump", "console", "tinspect", "tableinspect", "eventtrace", "etrace",
+  "click", "camp", "quit", "exit", "logout", "reload", "rl", "disableaddons", "enableaddons",
+  "gdisband", "guilddisband", "gleader", "guildleader", "gquit", "guildquit", "gremove",
+  "guildremove", "gdemote", "guilddemote", "gpromote", "guildpromote", "ginvite", "guildinvite",
+  "gmotd", "guildmotd", "promote", "uninvite", "kick", "votekick",
+]
+
+# Hosts `macroforge fetch` may talk to (a host matches itself and its subdomains). Downloads are
+# https only and redirects are checked against this list.
+fetch_allowed_hosts = ["wago.tools", "api.github.com", "github.com", "githubusercontent.com"]
