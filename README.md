@@ -1,7 +1,7 @@
 # MacroForge
 
 Describe a macro in plain English and have it appear in your WoW macro list, with the right icon, no
-copy-pasting and no reload. Built for **WoW: Forever** (client 1.60.1, TOC 16001); works for any class.
+copy-pasting and no reload. Built for **WoW Forever**; works for any class.
 
 - **In game:** click the minimap button, type what you want, press Send. A few seconds later the macro
   is there (needs the optional watcher, see [In-game requests](#in-game-requests-optional)).
@@ -12,7 +12,7 @@ copy-pasting and no reload. Built for **WoW: Forever** (client 1.60.1, TOC 16001
 Pure Python standard library, nothing to pip install.
 
 ## Requirements
-- Windows, WoW: Forever installed (the `_classic_beta_` or launch folder).
+- Windows, WoW Forever installed (the beta, or the live game once it launches).
 - **Python 3.11 or newer** (`setup.cmd` tells you where to get it if it is missing).
 - Optional, only for the in-game request feature: the standalone **Claude Code** command-line program,
   signed in. See [In-game requests](#in-game-requests-optional).
@@ -138,7 +138,7 @@ with its cost. Details: [docs/SECURITY.md](docs/SECURITY.md).
 | `product` | derived from `wow_dir` | product name in `.build.info` (`wow_classic_beta`) |
 | `max_account_macros`, `max_char_macros` | 120, 18 | macro slot limits |
 | `claude_path` | auto | full path of `claude.exe` (executed as-is; must exist) |
-| `agent_model` | CLI default | model for in-game requests, e.g. a smaller one to save usage |
+| `agent_model` | CLI default (Sonnet 5.5 so far) | model for in-game requests; `claude-haiku-5-5` used about 15x less in our test, with slightly less careful macros |
 | `agent_max_budget_usd` | 0.5 | spend cap per request (0 disables) |
 | `agent_timeout_seconds` | 300 | time limit per request |
 | `delete_request_shots` | true | delete the request screenshots (and the JPEG written just after) once handled |
@@ -176,9 +176,14 @@ Layout: `macroforge.py` (entry), `mforge/` (library; `resources/` holds the prom
 `addon/MacroForge/` (Lua), `tests/`, `reference/` (macro syntax notes), `docs/`.
 See [docs/TESTING.md](docs/TESTING.md), including the in-game checklist for the Lua addon.
 
+## License
+MIT, see [LICENSE](LICENSE).
+
 ## Known gaps
 - The Lua addon is tested offline against a fake WoW API (optional LuaJIT install, see
   [docs/TESTING.md](docs/TESTING.md)); only the real game shows how the real client behaves, so the
   in-game checklist is still needed after addon changes and client updates.
 - Talents are not in the spell table (only trainable class spells).
+- The defaults point at the beta client folder (`_classic_beta_`). `setup` finds other client folders
+  by itself, and the defaults will be updated when the game launches.
 - Forever's real macro limits are inferred (120/18) from where character macros start.

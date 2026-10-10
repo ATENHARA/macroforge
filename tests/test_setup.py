@@ -48,8 +48,12 @@ class FindingTheGameTests(SetupCase):
         (self.sb.wow_root / "_retail_").mkdir()  # no Interface or WTF inside
         (self.sb.wow_root / "_classic_").mkdir()
         (self.sb.wow_root / "_classic_" / "Interface").mkdir()
+        (self.sb.wow_root / "_forever_").mkdir()  # a future flavor name is found too
+        (self.sb.wow_root / "_forever_" / "WTF").mkdir()
+        (self.sb.wow_root / "NotAFlavor").mkdir()
+        (self.sb.wow_root / "NotAFlavor" / "Interface").mkdir()
         names = [g.path.name for g in setup_mod.find_games([self.sb.wow_root])]
-        self.assertEqual(names, ["_classic_", "_classic_beta_"])
+        self.assertEqual(names, ["_classic_", "_classic_beta_", "_forever_"])
 
     def test_missing_roots_and_a_damaged_build_info_are_harmless(self):
         self.assertEqual(setup_mod.find_games([self.sb.tmp / "nowhere"]), [])

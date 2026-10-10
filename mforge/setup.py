@@ -22,7 +22,6 @@ from .spec import load_spec
 from .watcher import load_replies
 
 SLOT_COUNT = 120
-FLAVOR_WORDS = ("beta", "classic", "era", "retail", "ptr", "xptr")  # folders like _classic_beta_
 
 
 @dataclass(frozen=True)
@@ -83,8 +82,8 @@ def find_games(roots: list[Path] | None = None) -> list[GameFolder]:
         for child in children:
             name = child.name
             if not (name.startswith("_") and name.endswith("_") and child.is_dir()):
-                continue
-            if not any(word in name for word in FLAVOR_WORDS) or child.resolve() in seen:
+                continue  # client folders look like _classic_beta_ (the flavor name may change)
+            if child.resolve() in seen:
                 continue
             if (child / "Interface").is_dir() or (child / "WTF").is_dir():
                 seen.add(child.resolve())

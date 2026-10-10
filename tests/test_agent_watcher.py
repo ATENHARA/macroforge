@@ -100,6 +100,12 @@ class WatcherCase(unittest.TestCase):
 
 
 class HappyPathTests(WatcherCase):
+    def test_the_audit_log_records_which_model_answered(self):
+        out = cli_json("Done.\nREPLY: ok", modelUsage={"claude-test-1": {"costUSD": 0.01}})
+        self.handle(runner=fake_process(add_macro(NEW_MACRO), out=out))
+        last = (self.sb.project / "data" / "watch.log").read_text(encoding="utf-8").splitlines()[-1]
+        self.assertEqual(json.loads(last)["models"], ["claude-test-1"])
+
     def test_benign_request_is_applied_and_installed(self):
         reply = self.handle()
         self.assertEqual(reply, "[Added: Corr] Added it.")

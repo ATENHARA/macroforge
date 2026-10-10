@@ -241,8 +241,10 @@ def run_agent(settings: Settings, req: Request, export: dict | None,
         spec_file = workspace / "macros.json"
         if not spec_file.is_file() or spec_file.stat().st_size > MAX_SPEC_BYTES:
             raise AgentError("agent left no usable macros.json")
+        used = parsed.get("modelUsage")
         usage = {"usage": parsed.get("usage"), "cost_usd": parsed.get("total_cost_usd"),
-                 "turns": parsed.get("num_turns")}
+                 "turns": parsed.get("num_turns"),
+                 "models": sorted(str(m)[:60] for m in used) if isinstance(used, dict) else []}
         return AgentResult(text=str(parsed.get("result", "")),
                            spec_text=spec_file.read_text(encoding="utf-8"), usage=usage)
     finally:
