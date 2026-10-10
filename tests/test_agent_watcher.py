@@ -100,6 +100,17 @@ class WatcherCase(unittest.TestCase):
 
 
 class HappyPathTests(WatcherCase):
+    def test_several_macros_in_one_request_are_all_added(self):
+        macros = [dict(NEW_MACRO, name=name) for name in ("Corr A", "Corr B", "Corr C")]
+
+        def edit(workspace):
+            for macro in macros:
+                add_macro(macro)(workspace)
+
+        reply = self.handle(runner=fake_process(edit))
+        self.assertEqual(reply, "[Added: Corr A, Corr B, Corr C] Added it.")
+        self.assertTrue({"Corr A", "Corr B", "Corr C"} <= set(self.spec_names()))
+
     def test_the_audit_log_records_which_model_answered(self):
         out = cli_json("Done.\nREPLY: ok", modelUsage={"claude-test-1": {"costUSD": 0.01}})
         self.handle(runner=fake_process(add_macro(NEW_MACRO), out=out))

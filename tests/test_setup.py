@@ -410,6 +410,28 @@ class ChatSetupTests(SetupCase):
         self.assertIn("MACROFORGE_API_KEY", self.text())
         self.assertNotIn(self.KEY, self.text())
 
+    def test_the_watcher_is_explained_before_anyone_agrees_to_it(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "m", "3"])
+        text = self.text()
+        step4 = text[text.index("Step 4 of 4"):text.index("Set up in-game requests now?")]
+        for phrase in ('"watcher"', "pythonw.exe", "does only this", "Screenshots folder",
+                       "sends the text of your request to the AI you choose", "opens no network ports",
+                       "Task Manager", "startup --remove"):
+            self.assertIn(phrase, step4)
+
+    def test_the_account_folder_is_explained_in_plain_words(self):
+        self.run_menu(["n"])
+        text = self.text()
+        self.assertIn("Account folder: " + ACCOUNT, text)
+        self.assertIn("addon data", text)
+
+    def test_the_account_menu_explains_what_to_pick(self):
+        (self.sb.wow / "WTF" / "Account" / "OTHER#2").mkdir()
+        self.answers = ["1"]
+        self.chat_wizard().pick_account(self.sb.wow, None)
+        self.assertIn("pick the one you play on", self.text())
+
     def test_a_failing_connection_still_saves_the_config_and_can_continue(self):
         self.server.respond(401, {"error": {"message": "bad key"}})
         self.run_menu(["y", "2", self.server.url, "m", "1"])

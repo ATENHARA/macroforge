@@ -23,6 +23,7 @@ from .spec import load_spec
 from .watcher import load_replies
 
 SLOT_COUNT = 120
+STEPS = 4  # find the game, game data, install the addon, in-game requests
 LOCAL_LLM_URL = "http://localhost:11434/v1"  # Ollama; LM Studio uses port 1234
 
 
@@ -202,33 +203,45 @@ class Wizard:
         names = list_accounts(wow_dir)
         if not names:
             return ""
-        return names[self.choose("Which account folder is yours?", names)]
+        return names[self.choose(
+            "Which account folder is yours? (The game keeps each account's addon data in its own\n"
+            "folder under WTF\\Account; pick the one you play on.)", names)]
 
     def run(self, wow_dir: str | None = None, account: str | None = None,
             skip_fetch: bool = False, requests: bool | None = None, backend: str | None = None,
             llm_url: str | None = None, llm_model: str | None = None,
             llm_key_env: str | None = None) -> int:
         """Run every step; returns the exit code."""
-        self.out("MacroForge setup\n")
+        self.out("MacroForge setup: four short steps.\n")
+        self.step(1, "Find your game and account")
         game = self.pick_game(wow_dir)
         chosen = self.pick_account(game, account)
         write_config(self.root, {"wow_dir": str(game), **({"account": chosen} if chosen else {})})
         settings = Settings.load(self.root)
         check_writable(check_addons_dir(settings))
         shown = chosen or "not created yet (found automatically later)"
-        self.out(f"Game: {game}\nAccount: {shown}\nSaved to {self.root / 'config.json'}\n")
+        self.out(f"Game: {game}\nAccount folder: {shown}\n"
+                 "  (where the game keeps each account's addon data, such as your spell list)\n"
+                 f"Saved to {self.root / 'config.json'}\n")
         self.step_data(settings, skip_fetch)
         self.step_addon(settings)
         self.step_requests(settings, requests, backend, llm_url, llm_model, llm_key_env)
-        self.out("\nAlmost done. If the game is running, fully quit it and start it again (it only "
+        self.out("")
+        self.out("Almost done. If the game is running, fully quit it and start it again (it only "
                  "notices new addon folders at launch).\n"
                  "Then in game: /mf  (apply macros), /mf live  (no reload), /mf ask <request>.\n"
                  "Re-run setup any time; it will not touch your macros.json.")
         return 0
 
+    def step(self, number: int, title: str) -> None:
+        """Print a step header such as ``Step 2 of 4: Game data``."""
+        self.out(f"Step {number} of {STEPS}: {title}")
+
     def step_data(self, settings: Settings, skip: bool) -> None:
         """Use a local data pack if there is one, else download; refresh if the client is newer."""
+        self.step(2, "Game data (spell and icon names)")
         if skip:
+            self.out("Skipped.\n")
             return
         pack = settings.root / "datapack"
         if not (settings.data / "icons.csv").exists():
@@ -247,6 +260,8 @@ class Wizard:
             installed = installed_build(settings)
         except ValidationError:
             return
+        if have == installed:
+            self.out("Up to date.\n")
         if have != installed:
             self.out(f"Your game is build {installed}; refreshing the spell tables...")
             try:
@@ -257,6 +272,7 @@ class Wizard:
 
     def step_addon(self, settings: Settings) -> None:
         """Create macros.json if missing, build the addon, make the slots and install."""
+        self.step(3, "Install the addon into the game")
         if not settings.spec.exists():
             example = settings.root / "macros.example.json"
             if example.exists():
@@ -278,13 +294,23 @@ class Wizard:
                       llm_key_env: str | None = None) -> None:
         """Optionally set up the watcher that answers ``/mf ask``, with the AI of your choice."""
         if requests is False or backend == "skip":
+            self.step(4, "In-game requests (skipped)")
             return
         if backend is None and requests is None:
-            self.out("In-game requests (optional)\n"
-                     "  With this you type what you want in the game, for example\n"
-                     "      /mf ask a macro that heals my mouseover, otherwise my target\n"
-                     "  and an AI writes the macro for you. It needs a small helper program (the\n"
-                     "  \"watcher\") that runs hidden on this PC and starts with Windows.\n")
+            self.step(4, "In-game requests (optional)")
+            self.out(
+                "  With this you type what you want in the game, for example\n"
+                "      /mf ask a macro that heals my mouseover, otherwise my target\n"
+                "  and an AI writes the macro for you. That needs a small helper program on\n"
+                '  this PC, called the "watcher". It runs hidden (as pythonw.exe), starts with\n'
+                "  Windows, and does only this:\n"
+                "   1. finds the request your game saves (a small picture in the game's\n"
+                "      Screenshots folder) and reads the addon's saved data (your spell list);\n"
+                "   2. sends the text of your request to the AI you choose below;\n"
+                "   3. checks the answer and writes the macros into MacroForge's own files.\n"
+                "  It opens no network ports and sends nothing to the internet except your\n"
+                "  request to that AI. Stop it any time (Task Manager > pythonw.exe) or\n"
+                "  remove it with: python macroforge.py startup --remove\n")
             if not self.yes("Set up in-game requests now?"):
                 return
         if backend is None:
@@ -306,7 +332,7 @@ class Wizard:
                  f"Windows ({target}).\n"
                  "In game: click the minimap button, or type /mf ask <what you want>.\n"
                  "To remove it later: python macroforge.py startup --remove\n"
-                 f"Log: {settings.data / 'watcher.log'}\n")
+                 f"Log: {settings.data / 'watcher.log'}")
 
     def setup_claude(self, settings: Settings) -> bool:
         """The Claude CLI path; returns False if it cannot be used yet."""
@@ -319,7 +345,7 @@ class Wizard:
                      "  1. Install it (PowerShell):  irm https://claude.ai/install.ps1 | iex\n"
                      "  2. Sign in:                  python macroforge.py login\n"
                      "  3. Run setup again.\n"
-                     "Or run setup again and pick a different AI.\n")
+                     "Or run setup again and pick a different AI.")
             return False
         if not self.assume_yes and self.yes("Sign in to Claude now? (say no if you already did)",
                                             False):
@@ -334,13 +360,13 @@ class Wizard:
             self.out(("Address of your local AI server. The default is Ollama's; LM Studio's is\n"
                       "usually http://localhost:1234/v1." if local else
                       "Address of the AI service's API. The default is OpenAI's; for another\n"
-                      "service use the address in its documentation (https://...).") + "\n")
+                      "service use the address in its documentation (https://...)."))
         url = url or self.ask_valid_url(LOCAL_LLM_URL if local else DEFAULT_LLM_URL)
         validate_llm_url(url)
         if not model:
-            self.out("The model is the exact name of the AI model to use. " + (
+            self.out("The model is the exact name of the AI model to use.\n" + (
                 "Run `ollama list` (or look in LM Studio) to see yours." if local else
-                "It is listed in your provider's documentation.") + "\n")
+                "It is listed in your provider's documentation."))
         model = model or self.text("Model name")
         while not model and not self.assume_yes:
             model = self.text("A model name is required")

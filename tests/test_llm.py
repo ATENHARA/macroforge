@@ -147,6 +147,29 @@ class HappyPathTests(LlmCase):
         self.assertEqual(len(corr), 1)
         self.assertIn("@mouseover", corr[0]["body"])
 
+    def test_several_macros_in_one_request_are_all_added(self):
+        three = [dict(NEW_MACRO, name=name) for name in ("Corr A", "Corr B", "Corr C")]
+        self.server.reply(answer(upsert=three, reply="Added three macros."))
+        self.assertEqual(self.run_request(), "[Added: Corr A, Corr B, Corr C] Added three macros.")
+        self.assertTrue({"Corr A", "Corr B", "Corr C"} <= set(self.spec_names()))
+        self.assertEqual(len(self.server.requests), 1)  # one question, one answer
+
+    def test_one_request_can_add_and_edit_at_the_same_time(self):
+        new = dict(NEW_MACRO, name="Fresh")
+        edited = {"name": "Fear MO", "char": "Test Char", "icon": "spell:Fear",
+                  "body": "#showtooltip Fear\n/cast [@focus,harm,nodead] Fear"}
+        self.server.reply(answer(upsert=[new, edited], reply="Did both."))
+        self.assertEqual(self.run_request(), "[Added: Fresh; Edited: Fear MO] Did both.")
+        macros = {m["name"]: m for m in read_spec(self.sb.project / "macros.json")["macros"]}
+        self.assertIn("@focus", macros["Fear MO"]["body"])
+        self.assertEqual(len([n for n in self.spec_names() if n == "Fear MO"]), 1)
+
+    def test_the_most_macros_allowed_in_one_answer_all_arrive(self):
+        eight = [dict(NEW_MACRO, name=f"Bulk {i}") for i in range(llm.MAX_UPSERTS)]
+        self.server.reply(answer(upsert=eight))
+        self.run_request()
+        self.assertTrue({m["name"] for m in eight} <= set(self.spec_names()))
+
     def test_default_runner_follows_the_backend(self):
         self.assertIs(watcher.default_runner(self.settings), agent.run_agent)
         self.assertIsInstance(watcher.default_runner(self.cfg), partial)

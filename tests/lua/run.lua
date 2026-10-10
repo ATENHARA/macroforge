@@ -794,6 +794,34 @@ test("left-click opens the simple view even after the advanced view was used", f
     truthy(not window.expanded)
 end)
 
+test("several new macros in one reply are all created, account-wide and per character", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    w.chat = {}
+    local burst = data({
+        rev = 900,
+        account = { { name = "A1", icon = 1, body = "/x" }, { name = "A2", icon = 1, body = "/x" } },
+        chars = { ["Testy Mage"] = { { name = "C1", icon = 1, body = "/x" },
+                                      { name = "C2", icon = 1, body = "/x" },
+                                      { name = "C3", icon = 1, body = "/x" } } },
+    })
+    w.addon_files["MacroForge_S001"] = "MacroForgeSlotData = " .. (function(t)
+        local function ser(v)
+            if type(v) == "table" then
+                local parts = {}
+                for k, x in pairs(v) do parts[#parts + 1] = "[" .. ser(k) .. "]=" .. ser(x) end
+                return "{" .. table.concat(parts, ",") .. "}"
+            end
+            return type(v) == "string" and string.format("%q", v) or tostring(v)
+        end
+        return ser(t)
+    end)(burst)
+    w.env.SlashCmdList.MACROFORGE("live")
+    truthy(chat_has(w, "5 created"), chat_dump(w))
+    truthy(names(w.account):find("A1", 1, true) and names(w.account):find("A2", 1, true), names(w.account))
+    eq(names(w.char):find("C1", 1, true) ~= nil and names(w.char):find("C3", 1, true) ~= nil, true)
+end)
+
 -- run ---------------------------------------------------------------------------------------------------
 
 local failures = 0
