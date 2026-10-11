@@ -14,6 +14,7 @@ MAX_NAME = 16
 MAX_BODY = 255
 MAX_REPLY = 600
 MODES = ("macro", "script")  # what an in-game request asks for
+SCOPES = ("char", "account")  # where new macros go: this character, or all of them
 
 # First name plus optional surname parts: letters, spaces, apostrophes and hyphens only.
 _CHAR_RE = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ '\-]){1,47}$")
@@ -57,6 +58,7 @@ class Request:
     cls: str
     level: int
     mode: str = "macro"
+    scope: str = "char"
 
 
 def parse_request(raw: object, allowed_classes: frozenset[str] | set[str],
@@ -87,8 +89,11 @@ def parse_request(raw: object, allowed_classes: frozenset[str] | set[str],
     mode = raw.get("mode", "macro")
     if mode not in MODES:
         raise ValidationError("request mode must be macro or script")
+    scope = raw.get("scope", "char")
+    if scope not in SCOPES:
+        raise ValidationError("request scope must be char or account")
     text = strip_bad_chars(text.strip())[:max_text]
-    return Request(id=req_id, text=text, char=char, cls=cls, level=level, mode=mode)
+    return Request(id=req_id, text=text, char=char, cls=cls, level=level, mode=mode, scope=scope)
 
 
 def clean_macro(name: object, body: object) -> tuple[str, str]:

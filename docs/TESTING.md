@@ -26,6 +26,7 @@ Only the standard library is used (the Lua tests also need LuaJIT, below).
 | `test_luacheck` | the Lua lexer, parser and script checker: accepted and refused scripts, bypass attempts, a seeded fuzz test, parity with LuaJIT's own compiler |
 | `test_luacheck_bypass` | one regression test per script-checker bypass found by the adversarial review, plus the ordinary scripts that must stay allowed, parser parity (`break`, nested `[[`) and the `/run` line rules the addon shares |
 | `test_hardening` | robustness findings of the review: hostile agent or endpoint output, files that are not text, the watcher's catch-all reply, name matching, launcher encoding, linear-time parsing and picture scanning |
+| `test_scope` | the account-wide or this-character choice: request field, prompts, and the PC placing new macros where the player chose |
 | `test_script_mode` | request mode end to end: payload, validation, the two-way gate in the watcher, spec entries, replies |
 | `test_script_prompts` | what the AI is told for scripts (both backends), workspace files, context-file setting |
 | `test_script_examples` | every vetted example fits a macro, passes the checker and runs against a fake game under LuaJIT |
@@ -99,9 +100,12 @@ this after changing the addon (`addon/MacroForge/*.lua`) and after a client upda
 8. **Questions:** the empty request box shows a grey hint that disappears when you type. Ask "what does
    [mod:shift] do in a macro?": the chat shows an answer starting with `[No macro changes]` and the status line says
    nothing was changed (not "your macro is ready"). Ask something off-topic: it is declined in a line.
-9. **Bulk changes:** ask for "delete all my macros" when you have 3 or more: the reply lists them and says to add
+9. **Where it goes:** tick **Save for all characters**, ask for a macro: it appears in the General Macros tab
+   (account-wide); untick it and ask again: it appears under the character's own tab. Existing macros do not move
+   when edited.
+10. **Bulk changes:** ask for "delete all my macros" when you have 3 or more: the reply lists them and says to add
    CONFIRM, and nothing changes. Repeat with "confirm: delete all my macros" (use a throwaway character).
-10. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
+11. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
    `install`, `/mf live`: the chat shows the text with the pipes visible, no color and no link.
 
 Before sharing a new version, also try a **fresh install** on another PC (the real download and the Windows

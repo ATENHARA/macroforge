@@ -49,8 +49,10 @@ GetNumMacros()  -- numAccount, numCharacter
   from a typed command), but they pass through Blizzard's chat servers and the policy bans "excessive"
   chat use, so MacroForge does not send chat messages.
 - **Screenshots (game to PC): works.** `Screenshot()` writes the picture to `Screenshots\` immediately.
-  Setting `screenshotFormat` to `tga`, waiting 0.5 s and then calling `Screenshot()` writes a TGA (a JPEG
-  of the same moment appears about 1.5 s later); the format was `jpeg` before and is restored afterwards.
+  Setting `screenshotFormat` to `tga`, waiting 0.5 s and then calling `Screenshot()` writes one TGA and
+  nothing else (checked 2026-10-10 by watching the folder for several requests, including the first after a
+  `/reload`; an earlier note of a second JPEG was wrong, those were the player's own screenshots); the
+  format was `jpeg` before and is restored afterwards.
   A strip of pure-color 8-pixel squares (3 bits each) in the top-left corner decoded exactly in five of
   five tries at 3840x2160 (`mforge/stripcodec.py`, `addon/MacroForge/Codec.lua`). This is the request
   channel for `/mf ask`: no reload.

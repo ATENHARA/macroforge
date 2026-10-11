@@ -141,6 +141,13 @@ for every script from any source. The checks are designed to stay within Blizzar
 addons, which do not mention scripts directly; they are not an approval by Blizzard. See
 [docs/SECURITY.md](docs/SECURITY.md).
 
+**Where the macro goes:** the window has a **Save for all characters** checkbox under the request box. Unticked
+(the default) a new macro belongs to the character you are playing; ticked, it is account-wide and every
+character sees it. The choice is remembered and also applies to `/mf ask` and `/mf script`; you do not have to
+write it in the request. It only decides where *new* macros go: an existing macro that you ask to change stays
+where it is. (Account-wide macros share one list of 120; a character has 18 of its own, so use account-wide for
+things like a hearthstone or a script that is not class specific.)
+
 **Questions:** the request box also takes questions about macros and scripts ("what does `[mod:shift]` do?",
 "why would this macro not fire?"). The answer appears in chat, nothing is changed, and the status line says
 so. Other topics (builds, quests, general knowledge) are politely declined, because the AI only has the macro
@@ -188,7 +195,7 @@ with its cost. Details: [docs/SECURITY.md](docs/SECURITY.md).
 | `llm_base_url`, `llm_api_key_env`, `llm_max_tokens`, `llm_json_mode`, `llm_retries`, `agent_context_file` | see `config.example.json` | settings for `agent_backend: openai` and a custom rules file |
 | `agent_max_budget_usd` | 0.5 | spend cap per request (0 disables) |
 | `agent_timeout_seconds` | 300 | time limit per request |
-| `delete_request_shots` | true | delete the request screenshots (and the JPEG written just after) once handled |
+| `delete_request_shots` | true | delete the request screenshots once handled (only those; your own screenshots are never touched) |
 | `max_requests_per_hour` | 10 | hourly cap (kept across restarts) |
 | `confirm_changes_at` | 3 | a request that removes or edits this many macros at once is refused unless it contains the word CONFIRM (1-100) |
 | `max_request_chars` | 500 | longest accepted request text |

@@ -46,7 +46,7 @@ class RequestModeTests(unittest.TestCase):
         self.assertEqual(request_from_payload((base + "\tscript").encode())["mode"], "script")
         self.assertEqual(request_from_payload((base + "\tmacro").encode())["mode"], "macro")
         with self.assertRaises(ValidationError):
-            request_from_payload((base + "\tscript\textra").encode())
+            request_from_payload((base + "\tscript\taccount\textra").encode())
         with self.assertRaises(ValidationError):
             request_from_payload(b"MFREQ\t1\t30\tWARLOCK\tA")
 

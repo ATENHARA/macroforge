@@ -33,7 +33,7 @@ Folders that are links (symlinks or junctions) are refused for the AddOns folder
 | `macros.json` | you (or Claude) | JSON shape and types; name <= 16, body <= 255 **bytes**; no control, invisible (zero-width, bidi) or line-separator characters and no `\|` escape sequences; unique names; slot limits; every string written to the Lua data file is escaped (only escapes valid in the game's Lua 5.1) |
 | `config.json` | you | typed and validated; unknown keys reported; `claude_path` must be an existing file and **is executed** |
 | saved variables (`MacroForge.lua`) | the game, in a user-writable folder | hardened parser: size, depth and number-length caps, only `ValidationError` on bad input, fuzz-tested. Anything else that goes wrong is logged and the watcher keeps running |
-| request screenshots | the game's `Screenshots` folder (user-writable) | only `.tga` files from the last 10 minutes; picture size capped (40 million pixels); accepted only if a strip with the right header, length and checksum is found. The decoded fields then get the same validation as any request. Handled pictures (and a JPEG written within 5 seconds after one) are deleted; a locked file is retried, then reported, never fatal |
+| request screenshots | the game's `Screenshots` folder (user-writable) | only `.tga` files from the last 10 minutes; picture size capped (40 million pixels); accepted only if a strip with the right header, length and checksum is found. The decoded fields then get the same validation as any request. Handled request pictures (and old unanswered ones, never answered) are deleted and nothing else in the folder; a locked file is retried, then reported, never fatal |
 | requests | whatever `/mf ask` drew or saved | `id`, `level`, `char` and `class` validated (class from a fixed list, so it can never become a path); text capped and stripped of control characters; a bad request is answered or ignored, never fatal |
 | agent output | the Claude CLI or the chat model | untrusted: parsed as JSON and validated like `macros.json`. Agent-written macros may only use a **fixed allowlist** (the wiki's command list plus a few aliases, minus the blocked commands, and only real conditionals); a client probe can narrow the list, never widen it. New `remove` entries must name macros already in `macros.json`. The reply sent to the game starts with a change summary **computed from the real diff**, followed by the model's text reduced to ASCII with `\|` removed |
 | downloads | the network | https only, host allowlist (also for redirects), size caps, content checks (CSV header), `.part` file renamed only on success |
@@ -57,6 +57,11 @@ There is a single-instance lock, a persisted hourly rate limit and an audit log 
 **Verified:** `tests/test_live.py` (opt-in) runs the real CLI with a neutral prompt that asks it to read a
 file outside the workspace and edit another one. The CLI refused ("outside ... `--restricted` confines the
 file tools") and the files were untouched.
+
+### Where new macros are saved
+The window's "Save for all characters" choice travels in the request and is enforced by the PC, not trusted to
+the model: every *new* macro in an answer is placed account-wide or on the requesting character as chosen, and
+existing macros are never moved.
 
 ### Bulk changes
 A request that would remove or edit `confirm_changes_at` (default 3) or more macros at once is refused unless
@@ -166,9 +171,11 @@ The repository's tests refuse commits that contain personal details (`tests/test
 - Anything running as your user can edit `macros.json`, `config.json`, the saved variables or the
   `Screenshots` folder. These are protected against *malformed* content (a forged request picture is
   validated and rate limited like any request), not against someone who already controls your account.
-- Deleting handled request pictures also deletes any JPEG screenshot the game wrote within 5 seconds
-  after one, so a screenshot of your own taken in that window can be lost (`delete_request_shots`
-  turns the cleanup off). The request is visible as colored squares for about two seconds.
+- Only the request's own TGA is deleted (`delete_request_shots` turns that off). A watched request
+  (a monitor on the folder, 2026-10-10) showed exactly one file per request, so the player's own screenshots
+  are never touched. (A JPEG in the folder is the game's own screenshot, for example when another program
+  is bound to the Print Screen key, which WoW also uses.) The request is visible as colored squares for
+  about two seconds.
 - `claude_path` is executed; only set it to a program you trust.
 - The game's chat window and addon API can change in a client update. The Lua checks are defensive but
   are only fully exercised in the game (see `docs/TESTING.md`).

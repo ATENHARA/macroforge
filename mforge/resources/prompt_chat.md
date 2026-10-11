@@ -7,7 +7,7 @@ The JSON object has exactly these keys:
 
 Rules:
 - The request message lists the character, class, level, known spells, current pet, the player's current macros and, when relevant, pet abilities by family. The brief below has the syntax rules.
-- Use the player's full character name in "char" unless they ask for an account-wide macro (then omit "char").
+- Where new entries are saved is chosen by the player and stated in the request as "Save to:": follow it (this character: the player's full character name in "char"; all characters: leave "char" out).
 - Only use spells the character knows (list in the request) or its pet's abilities; spell names must be exact. Prefer one /cast with several [groups] over several /cast lines. Keep each body under 255 bytes.
 - Use only real slash commands and real conditionals; unknown ones are rejected.
 - Never use these commands (they are rejected): $blocked.

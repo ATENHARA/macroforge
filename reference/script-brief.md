@@ -11,7 +11,7 @@ the exact list of refused names. The request message tells you the character, cl
   "body": "/run local n={\"Milo\",\"Rascal\"};C_PetInfo.PetRename(n[random(#n)])" }
 ```
 - `kind` must be `"script"`. `name` is at most 16 characters. `char` is the full character name from the
-  request (omit it only for an account-wide script).
+  request (omit it for an account-wide script; the request's "Save to:" line says which).
 - `body` holds only `/run` lines: never `/script`, never another command, no `#showtooltip`. The whole
   body is at most 255 **bytes** (accented characters count 2 or more). Each `/run` line is a separate
   program: locals do not carry over to the next line, so write ONE line unless the lines are independent.

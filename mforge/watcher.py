@@ -28,10 +28,12 @@ from .fsutil import atomic_write_bytes, atomic_write_text, system_exe
 from .install import build_addon, install
 from .savedvars import load_sv
 from .settings import Settings
-from .shots import GIVE_UP_SECONDS, ShotScanner, cleanup, read_request, retry_stuck
+from .shots import (GIVE_UP_SECONDS, STALE_LOOK_LIMIT, ShotScanner, cleanup, read_request,
+                    retry_stuck)
 from .spec import (changed_macros, check_removals, describe_changes, diff_specs, load_spec,
-                   read_spec, resolve_spec)
-from .validate import Request, check_blocked, clean_macro, parse_request, sanitize_reply
+                   new_entries, read_spec, resolve_spec)
+from .validate import (SCOPES, Request, check_blocked, clean_macro, parse_request,
+                       sanitize_reply)
 
 log = logging.getLogger("mforge.watcher")
 
@@ -187,15 +189,17 @@ def _confirmed(text: str) -> bool:
     return re.search(r"\bconfirm\b", text, re.I) is not None
 
 
-def _evaluate(settings: Settings, candidate_text: str, mode: str = "macro",
-              text: str = "") -> tuple[dict, int, str]:
+def _evaluate(settings: Settings, candidate_text: str, mode: str = "macro", text: str = "",
+              scope: str = "", char: str = "") -> tuple[dict, int, str]:
     """Validate the agent's macros.json against the current one.
 
     Returns the parsed spec, the number of soft warnings (unknown spell names, unusable icons) and a
     one-line description of what changed that is computed here, not taken from the model's reply.
     ``text`` is the player's request: removing or editing ``confirm_changes_at`` or more macros at
     once needs the word CONFIRM in it, so one loose sentence cannot wipe out a macro collection.
-    The spec comes back with any unusable icon replaced by the default one.
+    The spec comes back with any unusable icon replaced by the default one, and with every NEW macro
+    saved where the player chose (``scope`` ``char`` for ``char``'s own macros, ``account`` for all
+    characters; empty leaves it as the model wrote it). Existing macros stay where they are.
     """
     try:
         candidate = json.loads(candidate_text)
@@ -204,6 +208,11 @@ def _evaluate(settings: Settings, candidate_text: str, mode: str = "macro",
     if not isinstance(candidate, dict) or not isinstance(candidate.get("macros"), list):
         raise ValidationError("macros.json must be an object with a 'macros' list")
     current = read_spec(settings.spec)
+    for entry in new_entries(current, candidate) if scope in SCOPES else []:
+        if scope == "account":
+            entry.pop("char", None)
+        else:
+            entry["char"] = char
     check_removals(current, candidate)
     for entry in changed_macros(current, candidate):  # a request may only make what it asked for
         is_script = entry.get("kind") == "script"
@@ -275,7 +284,7 @@ def default_runner(settings: Settings) -> Callable:
             """Ask the chat model; its answer is checked for the kind of request it answers."""
             return llm.run_chat(settings, req, export,
                                 check=lambda answer: _evaluate(settings, answer, req.mode,
-                                                                   req.text))
+                                                                   req.text, req.scope, req.char))
         return run
     return agent_mod.run_agent
 
@@ -313,7 +322,7 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
             usage = result.usage
             reply = agent_mod.extract_reply(result.text)
             candidate, warnings, summary = _evaluate(settings, result.spec_text, req.mode,
-                                                     req.text)
+                                                     req.text, req.scope, req.char)
             if candidate != read_spec(settings.spec):
                 unchanged = candidate == json.loads(result.spec_text)  # no icon was replaced
                 atomic_write_text(settings.spec, result.spec_text if unchanged
@@ -408,7 +417,24 @@ def process_new_shots(settings: Settings, state: WatchState, scanner: ShotScanne
     """Handle requests that arrived as screenshots. Returns how many ran."""
     handled = 0
     retry_stuck(scanner)
-    for path in scanner.fresh_files(now()):
+
+    def tidy(path: Path) -> None:
+        """Delete a handled request picture; a file the game still holds is retried later."""
+        if settings.delete_request_shots:
+            for left in cleanup(path):
+                log.warning("could not delete %s yet; will retry", left.name)
+                scanner.stuck[left] = 0
+
+    fresh = scanner.fresh_files(now())  # also sorts out the old pictures (scanner.stale)
+    old, scanner.stale = scanner.stale[:STALE_LOOK_LIMIT], scanner.stale[STALE_LOOK_LIMIT:]
+    for path in old:  # a request sent while the watcher was off will never be answered: tidy up
+        try:
+            read_request(path)
+        except (ValidationError, OSError):
+            continue  # not one of ours: someone's own screenshot, left alone
+        log.info("removing the old request picture %s (it was never answered)", path.name)
+        tidy(path)
+    for path in fresh:
         try:
             mtime = path.stat().st_mtime
             raw = read_request(path)
@@ -420,6 +446,7 @@ def process_new_shots(settings: Settings, state: WatchState, scanner: ShotScanne
         scanner.seen[path.name] = mtime
         req_id = raw["id"]
         if req_id in state.handled:
+            tidy(path)  # a second picture of a request that was already answered
             continue
         try:
             handle_request(settings, raw, find_export(settings, raw["char"]), state, runner, now)
@@ -429,10 +456,7 @@ def process_new_shots(settings: Settings, state: WatchState, scanner: ShotScanne
         finally:
             state.handled.add(req_id)
             state.save()
-            if settings.delete_request_shots:
-                for left in cleanup(path):
-                    log.warning("could not delete %s yet; will retry", left.name)
-                    scanner.stuck[left] = 0
+            tidy(path)
     return handled
 
 

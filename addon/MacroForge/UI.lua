@@ -446,6 +446,18 @@ local function buildWindow()
     local counter = label(frame, "0/500", "GameFontDisableSmall", 80, LEFT, -192)
     -- a grey hint over the empty box, so it is clear that questions are fine too
     frame.hint = label(scroll, MODE.macro.hint, "GameFontDisableSmall", WIDTH - 2 * LEFT - 44, 4, -4)
+    -- where the new macro is saved: this character (the default) or all of them
+    local everyone = newFrame("CheckButton", nil, frame, "UICheckButtonTemplate")
+    everyone:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT + 50, -187)
+    everyone:SetSize(22, 22)
+    local everyoneText = part(everyone, "Text", "text")
+    if everyoneText then everyoneText:SetText("Save for all characters")
+    else label(frame, "Save for all characters", "GameFontNormalSmall", 140, LEFT + 76, -192) end
+    everyone:SetChecked(settings().scope == "account")
+    everyone:SetScript("OnClick", function(self)
+        settings().scope = self:GetChecked() and "account" or nil
+    end)
+    frame.everyone = everyone
     edit:SetScript("OnTextChanged", function(self)
         counter:SetText(("%d/500"):format(#self:GetText()))
         frame.hint:SetShown(self:GetText() == "")

@@ -474,7 +474,11 @@ local function pollForReply(id, waited, told)
             note("Your PC has the request and is working on it.")
         elseif not state and not told.silent then
             told.silent = true
-            note("Your PC has not picked up the request yet. Is the MacroForge watcher running? I'll keep checking.")
+            if pendingRequests() > 1 then  -- the PC answers one request at a time
+                note("Your PC is still busy with an earlier request; this one is next. I'll keep checking.")
+            else
+                note("Your PC has not picked up the request yet. Is the MacroForge watcher running? I'll keep checking.")
+            end
         end
         pollForReply(id, waited + delay, told)
     end)
@@ -498,13 +502,20 @@ local function askRequest(text, mode)
     end
     local class = select(2, UnitClass("player"))
     local char = fullName()
+    -- where new macros go: set by the window's checkbox (saved in MacroForgeUI), also used by /mf ask
+    local scope = (type(MacroForgeUI) == "table" and MacroForgeUI.scope == "account") and "account" or "char"
     table.insert(MacroForgeRequests, { id = id, text = text, char = char, class = class,
-                                       level = UnitLevel("player"), mode = mode })
+                                       level = UnitLevel("player"), mode = mode, scope = scope })
     while #MacroForgeRequests > 10 do table.remove(MacroForgeRequests, 1) end
     recordRequest(id, mode, text, char)
     exportAll(true)  -- fresh spellbook + pet, written to disk at the next reload/logout
     local fields = { "MFREQ", id, UnitLevel("player"), class, oneLine(char), oneLine(text) }
-    if mode == "script" then fields[#fields + 1] = "script" end  -- macro requests keep the old format
+    if scope == "account" then  -- the scope field follows the mode field
+        fields[#fields + 1] = mode
+        fields[#fields + 1] = "account"
+    elseif mode == "script" then
+        fields[#fields + 1] = "script"  -- macro requests for this character keep the old format
+    end
     local payload = table.concat(fields, "\t")
     pollId = id
     MacroForgeStrip.Send(id, payload, function(ok, err)
@@ -516,6 +527,7 @@ local function askRequest(text, mode)
         pollForReply(id, 0)
     end)
     note("Sending your " .. (mode == "script" and "script request" or "request")
+         .. (scope == "account" and " (for all your characters)" or "")
          .. " (colored squares flash briefly in the top-left corner)...")
     return true
 end

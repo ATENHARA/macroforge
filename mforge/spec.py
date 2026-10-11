@@ -127,6 +127,12 @@ def changed_macros(old: dict, new: dict) -> list[dict]:
             and before.get(_key(m)) != _state(m)]
 
 
+def new_entries(old: dict, new: dict) -> list[dict]:
+    """The entries of ``new`` that are not in ``old`` at all (same name in the same scope)."""
+    before = _macro_map(old)
+    return [m for m in new.get("macros", []) if isinstance(m, dict) and _key(m) not in before]
+
+
 def _remove_set(spec: dict) -> set[tuple[str, str]]:
     """``{(scope, name)}`` for every ``remove`` entry of a parsed spec."""
     return {_key(r) for r in spec.get("remove", []) if isinstance(r, dict)}

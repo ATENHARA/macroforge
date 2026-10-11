@@ -20,7 +20,7 @@ class PayloadTests(WatcherCase):
     def test_valid_payload(self):
         self.assertEqual(request_from_payload(FIELDS.encode()),
                          {"id": 4242, "level": 30, "class": "WARLOCK", "char": "Test Char",
-                          "text": "add a corruption macro", "mode": "macro"})
+                          "text": "add a corruption macro", "mode": "macro", "scope": "char"})
 
     def test_a_seventh_field_sets_the_mode(self):
         self.assertEqual(request_from_payload((FIELDS + "	script").encode())["mode"], "script")
@@ -32,7 +32,7 @@ class PayloadTests(WatcherCase):
 
     def test_bad_payloads(self):
         for bad in (b"hello", b"MFREQ\t1\t2", b"MFREQ\tx\t30\tWARLOCK\tA\tB", b"\xff\xfe",
-                    b"OTHER\t1\t30\tWARLOCK\tA\tB", FIELDS.encode() + b"\textra\textra"):
+                    b"OTHER\t1\t30\tWARLOCK\tA\tB", FIELDS.encode() + b"\textra\textra\textra"):
             with self.assertRaises(ValidationError, msg=bad):
                 request_from_payload(bad)
 
@@ -83,20 +83,16 @@ class ScreenshotWatcherTests(WatcherCase):
         self.run_once()
         self.assertTrue(path.exists())
 
-    def test_deletion_is_on_by_default_and_removes_the_picture_and_its_jpeg_only(self):
+    def test_deletion_is_on_by_default_and_removes_the_request_picture_only(self):
         self.assertTrue(self.settings.delete_request_shots)
         path = self.shot()
         stamp = path.stat().st_mtime
         jpg = self.folder / "WoWScrnShot_1.jpg"
-        jpg.write_bytes(b"jpeg")
+        jpg.write_bytes(b"my own screenshot")
         os.utime(jpg, (stamp + 2, stamp + 2))
-        other = self.folder / "mine.jpg"
-        other.write_bytes(b"keep me")
-        os.utime(other, (stamp - 600, stamp - 600))
         self.run_once()
         self.assertFalse(path.exists())
-        self.assertFalse(jpg.exists())
-        self.assertTrue(other.exists())
+        self.assertTrue(jpg.exists())
 
     def test_pictures_from_before_the_watcher_started_are_ignored(self):
         self.shot(age=3600)
@@ -170,6 +166,82 @@ class DetachedStartTests(WatcherCase):
         self.assertEqual(calls, [startup.DETACHED | startup.BREAKAWAY, startup.DETACHED])
 
 
+class LeftoverPictureTests(ScreenshotWatcherTests):
+    """Nothing the request flow creates may be left behind, and nothing else is ever touched.
+
+    Watching a real request (a monitor on the Screenshots folder, with and without a /reload first)
+    showed exactly one file per request: the TGA. The addon calls ``Screenshot()`` once.
+    """
+
+    def keep(self, name, stamp, data=b"mine"):
+        path = self.folder / name
+        path.write_bytes(data)
+        os.utime(path, (stamp, stamp))
+        return path
+
+    def test_a_second_picture_of_an_answered_request_is_deleted_too(self):
+        first = self.shot("a.tga")
+        second = self.shot("b.tga")
+        self.assertEqual(self.run_once(), 1)
+        self.assertFalse(first.exists())
+        self.assertFalse(second.exists())
+
+    def test_the_players_own_screenshots_are_never_touched_whatever_their_time_or_type(self):
+        path = self.shot()
+        stamp = path.stat().st_mtime
+        mine = [self.keep(f"shot{i}{ext}", stamp + offset)
+                for i, (offset, ext) in enumerate([(-300, ".jpg"), (-5, ".jpg"), (-1, ".jpg"),
+                                                   (0.5, ".jpg"), (1.5, ".jpg"), (4, ".jpg"),
+                                                   (9, ".jpg"), (20, ".jpg"), (1, ".jpeg"),
+                                                   (1, ".png"), (1, ".bmp")])]
+        self.run_once()
+        self.run_once()
+        self.assertFalse(path.exists())
+        for picture in mine:
+            self.assertTrue(picture.exists(), f"{picture.name} is the player's own screenshot")
+
+    def test_a_player_screenshot_in_tga_format_that_is_not_a_request_is_kept(self):
+        plain = self.shot("plain.tga", data=make_tga([]))
+        self.run_once()
+        self.assertTrue(plain.exists())
+
+    def test_an_old_request_picture_nobody_answered_is_removed_but_not_answered(self):
+        old = self.shot("old.tga", age=3600)
+        jpg = self.keep("old.jpg", old.stat().st_mtime + 1.5)
+        self.assertEqual(self.run_once(), 0)
+        self.assertEqual(self.state.handled, set())
+        self.assertFalse(old.exists())
+        self.assertTrue(jpg.exists())
+        self.assertNotIn("Corr", self.spec_names())  # it was not run
+
+    def test_an_old_picture_that_is_not_a_request_is_left_alone(self):
+        plain = self.shot("plain.tga", data=make_tga([]), age=3600)
+        junk = self.shot("junk.tga", data=bytes(50), age=3600)
+        self.run_once()
+        self.assertTrue(plain.exists() and junk.exists())
+
+    def test_very_old_pictures_are_not_even_looked_at(self):
+        from mforge.shots import STALE_MAX_AGE
+        ancient = self.shot("ancient.tga", age=STALE_MAX_AGE + 3600)
+        self.run_once()
+        self.assertTrue(ancient.exists())
+
+    def test_old_pictures_are_left_when_deletion_is_turned_off(self):
+        import dataclasses
+        self.settings = dataclasses.replace(self.settings, delete_request_shots=False)
+        old = self.shot("old.tga", age=3600)
+        self.run_once()
+        self.assertTrue(old.exists())
+
+    def test_only_a_few_old_pictures_are_examined_per_poll(self):
+        from mforge.shots import STALE_LOOK_LIMIT
+        olds = [self.shot(f"old{i}.tga", age=3600 + i) for i in range(STALE_LOOK_LIMIT + 3)]
+        self.run_once()
+        self.assertEqual(sum(not p.exists() for p in olds), STALE_LOOK_LIMIT)
+        self.run_once()
+        self.assertEqual(sum(not p.exists() for p in olds), STALE_LOOK_LIMIT + 3)
+
+
 class StuckPictureTests(ScreenshotWatcherTests):
     """A picture the game still holds open must not break or stall the watcher."""
 
@@ -208,21 +280,10 @@ class StuckPictureTests(ScreenshotWatcherTests):
         self.assertTrue(path.exists())
         self.assertIn("delete it by hand", "".join(logs.output))
 
-    def test_a_locked_jpeg_does_not_stop_the_picture_being_deleted(self):
-        path = self.shot()
-        jpg = self.folder / "WoWScrnShot_1.jpg"
-        jpg.write_bytes(b"jpeg")
-        stamp = path.stat().st_mtime
-        os.utime(jpg, (stamp + 2, stamp + 2))
-        with self.locked({jpg.name}):
-            self.run_once()
-        self.assertFalse(path.exists())
-        self.assertIn(jpg, self.scanner.stuck)
-
-    def test_unreadable_folder_does_not_crash_cleanup(self):
-        from pathlib import Path
-        from unittest import mock
+    def test_cleanup_reports_a_locked_file_and_ignores_a_missing_one(self):
         from mforge.shots import cleanup
         path = self.shot()
-        with mock.patch.object(Path, "glob", side_effect=PermissionError("denied")):
-            self.assertEqual(cleanup(path), [])
+        with self.locked({path.name}):
+            self.assertEqual(cleanup(path), [path])
+        self.assertEqual(cleanup(path), [])  # deleted now
+        self.assertEqual(cleanup(path), [])  # already gone

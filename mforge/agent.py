@@ -168,6 +168,9 @@ def build_prompt(req: Request, export: dict | None) -> str:
     lines = [f"Character: {req.char} (class {req.cls}, level {req.level})."]
     if req.mode == "script":
         lines.append('Request type: script (a /run script, entry kind "script").')
+    lines.append('Save to: all characters (account-wide): leave "char" out of new entries.'
+                 if req.scope == "account" else
+                 'Save to: this character: new entries get "char": "' + req.char + '".')
     if pet:
         lines.append(f"Current pet: family {pet.get('family')}, abilities {pet.get('actions')}.")
     lines.append("Known spells: " + ", ".join(spells) if spells else "Known spells: unavailable.")
