@@ -20,6 +20,7 @@ BITS_PER_CELL = 3
 CELLS_PER_ROW = 100
 MAX_PAYLOAD = 3200
 MAX_IMAGE_PIXELS = 40_000_000
+MAX_TGA_BYTES = MAX_IMAGE_PIXELS * 5 + 70_000  # even a run-length file cannot be larger
 
 
 # -- cells <-> bytes -------------------------------------------------------------------------
@@ -107,6 +108,8 @@ class Image:
 
 def read_tga(path: Path) -> Image:
     """Read an uncompressed or run-length-encoded 24/32-bit TGA file."""
+    if Path(path).stat().st_size > MAX_TGA_BYTES:
+        raise ValidationError("TGA file is too large")
     data = Path(path).read_bytes()
     if len(data) < 18:
         raise ValidationError("not a TGA file (too short)")
@@ -167,8 +170,11 @@ def _cell_value(image: Image, x: int, y: int) -> int:
 
 
 def read_strip(image: Image, cell_px: float, origin_x: float = 0, origin_y: float = 0,
-               per_row: int = CELLS_PER_ROW) -> list[int]:
-    """Sample the cell centers of a strip whose top-left corner is at ``(origin_x, origin_y)``."""
+               per_row: int = CELLS_PER_ROW, limit: int | None = None) -> list[int]:
+    """Sample the cell centers of a strip whose top-left corner is at ``(origin_x, origin_y)``.
+
+    With ``limit`` only the first cells are read (enough to look for the header).
+    """
     cells: list[int] = []
     row = 0
     while True:
@@ -180,6 +186,8 @@ def read_strip(image: Image, cell_px: float, origin_x: float = 0, origin_y: floa
             if x >= image.width:
                 return cells
             cells.append(_cell_value(image, x, y))
+            if limit is not None and len(cells) >= limit:
+                return cells
         row += 1
         if row * per_row > MAX_PAYLOAD * 3:
             break
@@ -197,7 +205,7 @@ def find_strip(image: Image, cell_sizes: tuple[float, ...] = CELL_SIZES) -> tupl
     for cell in cell_sizes:
         for origin_y in range(0, 12):
             for origin_x in range(0, 12):
-                head = read_strip(image, cell, origin_x, origin_y)[:8]
+                head = read_strip(image, cell, origin_x, origin_y, limit=8)
                 if cells_to_bytes(head)[:2] != bytes(MAGIC):
                     continue
                 try:

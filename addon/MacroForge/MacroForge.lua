@@ -25,6 +25,9 @@ local function plain(s) return (tostring(s):gsub("|", "||")) end
 -- only use values of the expected type and size.
 local function list(t) return type(t) == "table" and t or {} end
 
+-- Saved variables are a file the player can edit: a counter that is not a number counts as 0.
+local function counter(value) return type(value) == "number" and value or 0 end
+
 local function validMacro(m)
     return type(m) == "table"
         and type(m.name) == "string" and #m.name >= 1 and #m.name <= 64
@@ -111,9 +114,9 @@ local function scriptNotice()
     say("Script macro installed. The first time you press a script macro, Blizzard shows a warning "
         .. "(\"You are attempting to run a custom script...\").")
     say("That warning is Blizzard's and appears for every custom script, whoever wrote it. MacroForge "
-        .. "checks each script before installing it and refuses anything that sends chat, touches "
-        .. "items, gold, mail, trades or guilds, or repeats actions by itself. Read what a script "
-        .. "does before you accept the warning.")
+        .. "checks each script before installing it and is designed to refuse anything that sends "
+        .. "chat, touches items, gold, mail, trades or guilds, or repeats actions by itself. No check "
+        .. "is perfect, so read what a script does before you accept the warning.")
 end
 
 local function applyOne(m, perChar, stats, trigger)
@@ -124,7 +127,7 @@ local function applyOne(m, perChar, stats, trigger)
         local _, icon, body = GetMacroInfo(idx)
         if tonumber(icon) ~= m.icon or trim(body) ~= trim(m.body) then
             -- evidence log (kept across runs, capped) in case a difference is ever real
-            MacroForgeLog = MacroForgeLog or {}
+            if type(MacroForgeLog) ~= "table" then MacroForgeLog = {} end
             MacroForgeLog[#MacroForgeLog + 1] = {
                 when = trigger, name = m.name, gameIcon = icon, ourIcon = m.icon,
                 gameBody = body, ourBody = m.body,
@@ -234,7 +237,7 @@ end
 -- Replies from the PC-side watcher arrive inside the data files (data.replies). Show each once;
 -- MacroForgeSeen remembers the newest reply id we have printed (saved variable).
 function MacroForge_ShowReplies(data)
-    MacroForgeSeen, MacroForgeAnswered = MacroForgeSeen or 0, MacroForgeAnswered or 0
+    MacroForgeSeen, MacroForgeAnswered = counter(MacroForgeSeen), counter(MacroForgeAnswered)
     local newest = MacroForgeSeen
     for _, r in ipairs(list(data.replies)) do
         if type(r) == "table" and type(r.id) == "number" and type(r.text) == "string" and not r.pending then
@@ -253,7 +256,7 @@ end
 local function pendingRequests()
     local n = 0
     for _, q in ipairs(list(MacroForgeRequests)) do
-        if type(q) == "table" and type(q.id) == "number" and q.id > (MacroForgeAnswered or 0) then
+        if type(q) == "table" and type(q.id) == "number" and q.id > counter(MacroForgeAnswered) then
             n = n + 1
         end
     end
@@ -425,6 +428,16 @@ local function replyState(data, id)
     return state
 end
 
+-- The text of the final reply to this request, or nil. A reply that changed nothing starts with
+-- "[No macro changes]" (the PC builds that part from the real diff), as it does for a question.
+local function finalReply(data, id)
+    for _, r in ipairs(list(data.replies)) do
+        if type(r) == "table" and r.req == id and not r.pending and type(r.text) == "string" then
+            return r.text
+        end
+    end
+end
+
 local function ping()
     pcall(PlaySound, (SOUNDKIT and SOUNDKIT.READY_CHECK) or 8960, "Master")
 end
@@ -448,7 +461,11 @@ local function pollForReply(id, waited, told)
         local state = replyState(data, id)
         if state == "final" then
             applyAll(false, data, "live")
-            status("Done. Your " .. pollWord .. " is ready (details in the chat window).")
+            if (finalReply(data, id) or ""):sub(1, 19) == "[No macro changes] " then
+                status("Done. Nothing was changed; see the chat window for the answer.")
+            else
+                status("Done. Your " .. pollWord .. " is ready (details in the chat window).")
+            end
             ping()
             return
         end
@@ -591,7 +608,8 @@ MacroForgeCore.probe = function() MacroForge_Probe() end
 local f = CreateFrame("Frame")
 f:RegisterEvent("PLAYER_LOGIN")  -- also fires after /reload
 f:SetScript("OnEvent", function()
-    applyAll(true)
+    local ok, err = pcall(applyAll, true)  -- a damaged saved variable must not stop the login work
+    if not ok then say("error while applying macros: " .. plain(err)) end
     local n = pendingRequests()
     if n > 0 then say(("%d request(s) waiting for the PC watcher; /mf live when it has answered"):format(n)) end
 end)

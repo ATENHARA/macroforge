@@ -141,6 +141,11 @@ for every script from any source. The checks are designed to stay within Blizzar
 addons, which do not mention scripts directly; they are not an approval by Blizzard. See
 [docs/SECURITY.md](docs/SECURITY.md).
 
+**Questions:** the request box also takes questions about macros and scripts ("what does `[mod:shift]` do?",
+"why would this macro not fire?"). The answer appears in chat, nothing is changed, and the status line says
+so. Other topics (builds, quests, general knowledge) are politely declined, because the AI only has the macro
+reference to go on and would otherwise guess.
+
 **Using GPT or a local model instead of Claude:** choose it in `setup.cmd` (or run
 `python macroforge.py setup --backend openai` or `--backend local`), or set it in `config.json`:
 ```json

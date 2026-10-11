@@ -50,7 +50,10 @@ def _long_string(src: str, start: int) -> tuple[str, int]:
     end = src.find(close, match.end())
     if end < 0:
         raise _fail("unfinished long string or comment", start)
-    return src[match.end():end], end + len(close)
+    text = src[match.end():end]
+    if not match.group(1) and "[[" in text:  # the game's Lua refuses a [[ inside a [[ ]] block
+        raise _fail("nesting of [[...]] is not allowed", start)
+    return text, end + len(close)
 
 
 def _quoted(src: str, start: int) -> tuple[str, int]:
@@ -120,8 +123,11 @@ def tokenize(src: str) -> list[Token]:
             nxt = src[i + len(text):i + len(text) + 1]
             if nxt.isascii() and (nxt.isalnum() or nxt == "_"):
                 raise _fail("malformed number", i)
-            tokens.append(Token("number", float(int(text, 16)) if text[:2] in ("0x", "0X")
-                                else float(text), i))
+            try:
+                value = float(int(text, 16)) if text[:2] in ("0x", "0X") else float(text)
+            except OverflowError:  # a hex number too big for a double is infinite, as in Lua
+                value = float("inf")
+            tokens.append(Token("number", value, i))
             i += len(text)
         elif src.startswith(_THREE, i):
             tokens.append(Token("op", "...", i))
@@ -237,6 +243,7 @@ class Parser:
         self.i = 0
         self.depth = 0
         self.vararg = [True]  # may `...` be used here? (main chunk: yes; functions: if declared)
+        self.loops = [0]  # loops being parsed in the current function (``break`` needs one)
 
     # -- token helpers ---------------------------------------------------------------------
     @property
@@ -326,6 +333,8 @@ class Parser:
         """``return [exprs]`` or ``break``."""
         pos = self.tok.pos
         if self.accept_kw("break"):
+            if not self.loops[-1]:
+                raise self.error("break outside a loop")
             return Stat("break", pos=pos)
         self.expect_kw("return")
         exprs: list = []
@@ -333,6 +342,13 @@ class Parser:
                 self.tok.value in ("end", "else", "elseif", "until"))):
             exprs = self.expr_list()
         return Stat("return", exprs=exprs, pos=pos)
+
+    def loop_body(self) -> list[Stat]:
+        """A block inside a loop (so ``break`` is allowed in it)."""
+        self.loops[-1] += 1
+        body = self.block()
+        self.loops[-1] -= 1
+        return body
 
     def statement(self) -> Stat:
         """One statement."""
@@ -344,11 +360,11 @@ class Parser:
         if self.accept_kw("while"):
             cond = self.expr()
             self.expect_kw("do")
-            body = self.block()
+            body = self.loop_body()
             self.expect_kw("end")
             return Stat("while", exprs=[cond], body=body, pos=pos)
         if self.accept_kw("repeat"):
-            body = self.block()
+            body = self.loop_body()
             self.expect_kw("until")
             return Stat("repeat", exprs=[self.expr()], body=body, pos=pos)
         if self.accept_kw("if"):
@@ -392,7 +408,7 @@ class Parser:
             if self.accept_op(","):
                 exprs.append(self.expr())
             self.expect_kw("do")
-            body = self.block()
+            body = self.loop_body()
             self.expect_kw("end")
             return Stat("numfor", names=[first], exprs=exprs, body=body, pos=pos)
         names = [first]
@@ -401,7 +417,7 @@ class Parser:
         self.expect_kw("in")
         exprs = self.expr_list()
         self.expect_kw("do")
-        body = self.block()
+        body = self.loop_body()
         self.expect_kw("end")
         return Stat("genfor", names=names, exprs=exprs, body=body, pos=pos)
 
@@ -460,7 +476,9 @@ class Parser:
                     break
         self.expect_op(")")
         self.vararg.append(has_vararg)
+        self.loops.append(0)  # a function body starts outside any loop
         body = self.block()
+        self.loops.pop()
         self.vararg.pop()
         self.expect_kw("end")
         return Func(params, body)

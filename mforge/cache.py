@@ -20,7 +20,11 @@ def parse_cache(path: Path) -> list[dict]:
     blocks: list[dict] = []
     current = None
     # split on "\n" only: str.splitlines() also breaks on U+2028, \x85 and other separators
-    for line in Path(path).read_text(encoding="utf-8").replace("\r\n", "\n").split("\n"):
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        raise ValidationError(f"{Path(path).name} is not valid UTF-8 text; left alone") from None
+    for line in text.replace("\r\n", "\n").split("\n"):
         match = BLOCK.match(line)
         if match:
             current = {"ver": match[1], "id": match[2], "name": match[3], "icon": match[4],

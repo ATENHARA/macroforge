@@ -185,7 +185,7 @@ class StartupTests(unittest.TestCase):
         folder.mkdir(parents=True)
         (folder / "other.lnk").write_text("keep me")
         path = startup.install_startup(self.settings, Path(REPO / "macroforge.py"), start_now=False)
-        text = path.read_text(encoding="utf-8")
+        text = startup.read_launcher(path)
         self.assertIn('CreateObject("WScript.Shell")', text)
         self.assertIn(str(self.settings.root), text)
         self.assertIn('""' + str(REPO / "macroforge.py"), text.replace("\\\\", "\\"))

@@ -309,6 +309,13 @@ def chat_once(settings: Settings, messages: list[dict], key: str,
 
 # -- the runner the watcher uses ---------------------------------------------------------------
 
+def _count(value: object) -> int:
+    """A token count from a response: a plain non-negative whole number, else 0."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value:
+        return 0
+    return int(min(max(value, 0), 10**9))
+
+
 @dataclass
 class _Totals:
     prompt: int = 0
@@ -318,8 +325,8 @@ class _Totals:
     def add(self, response: dict) -> None:
         """Add the token counts and model name of one response."""
         usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
-        self.prompt += int(usage.get("prompt_tokens") or 0)
-        self.completion += int(usage.get("completion_tokens") or 0)
+        self.prompt += _count(usage.get("prompt_tokens"))
+        self.completion += _count(usage.get("completion_tokens"))
         self.model = str(response.get("model") or self.model)[:60]
 
 

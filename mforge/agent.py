@@ -236,7 +236,10 @@ def _kill_tree(proc: subprocess.Popen) -> None:
 def _error_message(returncode: int, out: str, err: str) -> str:
     message = (err or out or f"claude exited with code {returncode}").strip()
     try:  # the CLI reports errors as JSON; show its message, not the raw blob
-        message = json.loads(out).get("result") or message
+        parsed = json.loads(out)
+        result = parsed.get("result") if isinstance(parsed, dict) else None
+        if isinstance(result, str) and result:
+            message = result
     except ValueError:
         pass
     if "login" in message.lower():
@@ -274,8 +277,11 @@ def run_agent(settings: Settings, req: Request, export: dict | None,
         usage = {"usage": parsed.get("usage"), "cost_usd": parsed.get("total_cost_usd"),
                  "turns": parsed.get("num_turns"),
                  "models": sorted(str(m)[:60] for m in used) if isinstance(used, dict) else []}
-        return AgentResult(text=str(parsed.get("result", "")),
-                           spec_text=spec_file.read_text(encoding="utf-8"), usage=usage)
+        try:
+            spec_text = spec_file.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            raise AgentError("agent left a macros.json that is not readable text") from None
+        return AgentResult(text=str(parsed.get("result", "")), spec_text=spec_text, usage=usage)
     finally:
         shutil.rmtree(workspace, ignore_errors=True)
 

@@ -15,6 +15,7 @@ MAX_DEPTH = 50
 
 _NUMBER = re.compile(r"-?(?:0[xX][0-9a-fA-F]+|\d+\.?\d*(?:[eE][-+]?\d+)?|\.\d+(?:[eE][-+]?\d+)?)")
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_FIELD = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)[ \t\r\n]*=(?!=)")
 _LONG_OPEN = re.compile(r"\[(=*)\[")
 _SIMPLE_ESCAPES = {"n": "\n", "t": "\t", "r": "\r", "a": "\a", "b": "\b", "f": "\f", "v": "\v"}
 
@@ -183,12 +184,11 @@ class LuaParser:
                     raise self._fail("unsupported table key")
                 keyed[key] = self.value()
             else:
-                ident = _IDENT.match(self.text, self.pos)
-                after = self.text[ident.end():].lstrip(" \t\r\n") if ident else ""
-                if ident and after.startswith("=") and not after.startswith("=="):
-                    self.pos = ident.end()
+                ident = _FIELD.match(self.text, self.pos)  # "name =", not "name =="
+                if ident:
+                    self.pos = ident.end(1)
                     self._expect("=")
-                    keyed[ident.group(0)] = self.value()
+                    keyed[ident.group(1)] = self.value()
                 else:
                     items.append(self.value())
             self.skip_ws()

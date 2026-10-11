@@ -19,6 +19,8 @@ from .errors import ValidationError
 from .luaparse import (Bin, Call, Func, Index, Lit, Name, Paren, Stat, Table, Un, parse)
 
 OWN_PREFIX = "MF_"  # the only global names a script may create
+# The addon checks `^%s*/run%s+(%S.*)$` on each line: ASCII whitespace only.
+_RUN_LINE = re.compile(r"^[ \t\n\v\f\r]*/run[ \t\n\v\f\r]+([^ \t\n\v\f\r].*)$", re.S)
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,12 @@ class Rules:
     max_actions: int
     max_loop_depth: int
     max_loop_bound: int
+    max_work: int
+    unknown_trips: int
+    string_methods: frozenset[str]
+    higher_order: frozenset[str]
+    no_loop_functions: frozenset[str]
+    growers: frozenset[str]
     banned: dict[str, str]
     free_globals: frozenset[str]
     free_namespaces: frozenset[str]
@@ -64,7 +72,11 @@ def load_rules() -> Rules:
     free = data["free"]
     return Rules(
         max_actions=data["max_actions"], max_loop_depth=data["max_loop_depth"],
-        max_loop_bound=data["max_loop_bound"], banned=dict(data["banned_names"]),
+        max_loop_bound=data["max_loop_bound"], max_work=data["max_work"],
+        unknown_trips=data["unknown_trips"], string_methods=frozenset(free["string_methods"]),
+        higher_order=frozenset(free["higher_order"]),
+        no_loop_functions=frozenset(free["no_loop_functions"]),
+        growers=frozenset(free["growers"]), banned=dict(data["banned_names"]),
         free_globals=frozenset(free["globals"]), free_namespaces=frozenset(free["namespaces"]),
         output_globals=frozenset(free["output_globals"]),
         output_methods=frozenset(free["output_methods"]),
@@ -80,25 +92,95 @@ def refuse(message: str) -> ValidationError:
     return ValidationError(f"script: {message}")
 
 
+@dataclass
+class _Local:
+    """A local variable: where it was declared and what we know it can hold."""
+
+    depth: int  # function depth where it was declared
+    kind: str = "value"  # "func" (defined in the script), "alias" (a safe game function) or "value"
+    cost: int = 0  # for a func: the loop iterations one call can take
+
+
+def unwrap(node: object) -> object:
+    """The expression inside any number of parentheses."""
+    while isinstance(node, Paren):
+        node = node.expr
+    return node
+
+
+def children(node: object) -> list:
+    """The direct sub-nodes of a syntax tree node (statements, expressions, function bodies)."""
+    if isinstance(node, Stat):
+        out: list = [*node.exprs, *node.targets, *node.body, *node.orelse]
+        for cond, body in node.clauses:
+            out.extend([cond, *body])
+        if node.func is not None:
+            out.append(node.func)
+        return out
+    if isinstance(node, Call):
+        return [node.func, *node.args]
+    if isinstance(node, Func):
+        return list(node.body)
+    if isinstance(node, Index):
+        return [node.base, node.key]
+    if isinstance(node, Bin):
+        return [node.left, node.right]
+    if isinstance(node, Un):
+        return [node.operand]
+    if isinstance(node, Paren):
+        return [node.expr]
+    if isinstance(node, Table):
+        return [part for pair in node.items for part in pair if part is not None]
+    return []
+
+
+def walk(node: object):
+    """Every node of a tree, the node itself first."""
+    stack = [node]
+    while stack:
+        item = stack.pop()
+        yield item
+        stack.extend(children(item))
+
+
+def assigned_in(body: list) -> set[str]:
+    """The base names that are assigned to anywhere inside ``body`` (function bodies included)."""
+    names: set[str] = set()
+    for stat in body:
+        for node in walk(stat):
+            if isinstance(node, Stat) and node.kind == "assign":
+                for target in node.targets:
+                    while isinstance(target, Index):
+                        target = target.base
+                    if isinstance(unwrap(target), Name):
+                        names.add(unwrap(target).name)
+    return names
+
+
 class _Checker:
     """One walk over one script."""
 
     def __init__(self, rules: Rules, max_actions: int, known: ApiKnowledge | None) -> None:
         self.rules, self.max_actions, self.known = rules, max_actions, known
-        self.scopes: list[dict[str, int]] = [{}]  # local name -> function depth where declared
+        self.scopes: list[dict[str, _Local]] = [{}]
         self.func_depth = 0
         self.loop_depth = 0
+        self.mult = 1  # iterations of the loops around the code being walked
+        self.work = 0  # loop iterations this piece of code can do in total
+        self.carried: list[set[str]] = []  # per enclosing loop: names assigned inside it
         self.actions = 0
         self.notes: set[str] = set()
 
     # -- scopes ----------------------------------------------------------------------------
-    def declare(self, name: str) -> None:
+    def declare(self, name: str, kind: str = "value", cost: int = 0) -> _Local:
         """Add a local variable to the current scope."""
         self.check_banned(name)
-        self.scopes[-1][name] = self.func_depth
+        local = _Local(self.func_depth, kind, cost)
+        self.scopes[-1][name] = local
+        return local
 
-    def local_depth(self, name: str) -> int | None:
-        """Function depth where this local was declared, or None if it is not a local."""
+    def local(self, name: str) -> _Local | None:
+        """The local variable of this name, or None if it is not a local."""
         for scope in reversed(self.scopes):
             if name in scope:
                 return scope[name]
@@ -109,42 +191,62 @@ class _Checker:
         if name in self.rules.banned:
             raise refuse(f"{name} is not allowed ({self.rules.banned[name]})")
 
+    def check_field(self, name: str) -> None:
+        """A field read off a value we cannot trace: not banned, not a denied function family."""
+        self.check_banned(name)
+        for pattern, reason in self.rules.denied:
+            if pattern.match(name):
+                raise refuse(f"{name} is not allowed: it {reason}")
+
+    def charge(self, amount: int) -> None:
+        """Add loop steps to the work this code can do; refuse a script that can do too much."""
+        self.work += amount
+        if self.work > self.rules.max_work:
+            raise refuse("this script can run too many loop steps and would freeze the game")
+
     # -- chains ----------------------------------------------------------------------------
     def chain(self, node: object) -> tuple[str | None, list[str], bool]:
-        """(base name, field names, computed) of ``a.b.c`` / ``a[x].b``; base is None if no name."""
+        """(base name, field names, computed) of ``a.b.c`` / ``a[x].b``; base is None if no name.
+
+        Parentheses are looked through, so ``(a).b`` is the same chain as ``a.b``.
+        """
         path: list[str] = []
         computed = False
+        node = unwrap(node)
         while isinstance(node, Index):
             if node.dot:
                 path.append(node.key.value)
             else:
                 computed = True
-            node = node.base
+            node = unwrap(node.base)
         path.reverse()
         return (node.name if isinstance(node, Name) else None), path, computed
 
     def visit_chain_parts(self, node: object) -> None:
         """Visit the expressions inside a chain: bracket keys and a non-name base."""
+        node = unwrap(node)
         while isinstance(node, Index):
             if not node.dot:
                 self.expr(node.key)
-            node = node.base
+            node = unwrap(node.base)
         if not isinstance(node, Name):
             self.expr(node)
 
     def classify(self, base: str, path: list[str]) -> str:
-        """``free``, ``query`` or ``action`` for a global name (after the denylist)."""
+        """``free``, ``query``, ``data`` or ``action`` for a global name (after the denylist)."""
         rules = self.rules
         if base.startswith(OWN_PREFIX) or base in rules.free_namespaces:
             return "free"
         if not path:
             if base in rules.output_globals or base in rules.free_globals:
                 return "free"
-            if rules.constant.match(base) or rules.query_name.match(base):
+            if rules.constant.match(base):
+                return "data"
+            if rules.query_name.match(base):
                 return "query"
             return "action"
         if rules.constant.match(base):
-            return "free"
+            return "data"
         if len(path) == 1 and rules.query_member.match(path[0]):
             return "query"
         return "action"
@@ -189,12 +291,13 @@ class _Checker:
         """Check a name or field chain; returns its class (local names are ``free``)."""
         self.visit_chain_parts(node)
         base, path, computed = self.chain(node)
-        if base is None:
-            return "free"
-        if self.local_depth(base) is not None:
+        if base is None:  # a field of something we cannot trace (a call result, a literal)
             for name in path:
+                self.check_field(name)
+            return "data"
+        if self.local(base) is not None:
+            for name in [base, *path]:
                 self.check_banned(name)
-            self.check_banned(base)
             return "free"
         kind = self.check_global(base, path, computed)
         if kind == "action" and not callee:
@@ -210,12 +313,13 @@ class _Checker:
         elif isinstance(node, Call):
             self.call(node)
         elif isinstance(node, Func):
-            self.function(node)
+            raise refuse("a function can only be declared with local or passed straight to "
+                         "a call")
         elif isinstance(node, Bin):
             self.expr(node.left)
             self.expr(node.right)
-            if node.op == ".." and self.loop_depth:
-                self.check_doubling(node)
+            if node.op == "..":
+                self.check_concat(node)
         elif isinstance(node, Un):
             self.expr(node.operand)
         elif isinstance(node, Paren):
@@ -228,64 +332,139 @@ class _Checker:
         elif not isinstance(node, Lit):
             raise refuse("unsupported expression")
 
-    def check_doubling(self, node: Bin) -> None:
-        """In a loop, ``s = s .. s`` doubles a string every time round: refuse one name twice."""
-        names: list[str] = []
+    def variables_in(self, nodes: list) -> list[str]:
+        """The base names of the script's own variables used anywhere inside ``nodes``."""
+        found = []
+        for root in nodes:
+            for node in walk(root):
+                if isinstance(node, Name) and (
+                        self.local(node.name) is not None or node.name.startswith(OWN_PREFIX)):
+                    found.append(node.name)
+        return found
+
+    def carried_count(self, nodes: list) -> int:
+        """How many times the variables that an enclosing loop changes are used in ``nodes``."""
+        carried = set().union(*self.carried) if self.carried else set()
+        return sum(1 for name in self.variables_in(nodes) if name in carried)
+
+    def check_concat(self, node: Bin) -> None:
+        """Refuse ``..`` chains that can double a string: one variable twice, or in a loop two
+        variables that the loop changes (``b = a; a = a .. b``)."""
+        parts: list[object] = []
 
         def gather(item: object) -> None:
-            """Collect the local names that are joined together in this ``..`` chain."""
+            """Collect the operands of a ``..`` chain."""
+            item = unwrap(item)
             if isinstance(item, Bin) and item.op == "..":
                 gather(item.left)
                 gather(item.right)
-            elif isinstance(item, Name) and self.local_depth(item.name) is not None:
-                names.append(item.name)
+            else:
+                parts.append(item)
 
         gather(node)
+        names = []
+        for part in parts:
+            base, path, _computed = self.chain(part)
+            if base is not None and (self.local(base) is not None or base.startswith(OWN_PREFIX)):
+                names.append(".".join([base, *path]))
         if len(names) != len(set(names)):
-            raise refuse("a string joined with itself inside a loop grows without limit")
+            raise refuse("a string joined with itself grows without limit")
+        if self.carried_count(parts) > 1:
+            raise refuse("inside a loop, a string may only be extended with something the loop "
+                         "does not change (it could double every time round)")
+
+    def callback(self, node: Func) -> None:
+        """A function passed straight to a call; the call may run it many times."""
+        cost = self.function(node)
+        self.charge(cost * self.rules.unknown_trips * self.mult)
+
+    def check_callbacks(self, name: str, args: list) -> None:
+        """Functions that call their arguments (sort, gsub, ...) only get functions of your own."""
+        if name not in self.rules.higher_order:
+            return
+        for arg in args:
+            base, _path, _computed = self.chain(arg)
+            if isinstance(unwrap(arg), (Name, Index)) and base is not None \
+                    and self.local(base) is None:
+                raise refuse(f"{name}() calls the function you give it, so pass a function "
+                             "written in the script, not a game function")
+
+    def check_growth(self, name: str, parts: list) -> None:
+        """Inside a loop: no gsub, and string builders may use the loop's own variables once."""
+        if not self.carried:
+            return
+        if name in self.rules.no_loop_functions:
+            raise refuse(f"{name}() is not allowed inside a loop (it can grow a string "
+                         "without limit)")
+        if name in self.rules.growers and self.carried_count(parts) > 1:
+            raise refuse(f"{name}() would use a variable the loop changes more than once, which "
+                         "can double a string every time round")
 
     def call(self, node: Call) -> None:
         """Check one call and count it if it changes the game."""
         for arg in node.args:
-            self.expr(arg)
+            if isinstance(arg, Func):
+                self.callback(arg)
+            else:
+                self.expr(arg)
         if node.method is not None:
             self.method_call(node)
             return
-        func = node.func
-        base, path, _computed = self.chain(func)
+        base, path, computed = self.chain(node.func)
         if base is None:
-            self.expr(func)
+            raise refuse("only functions that have a name can be called (not the result of "
+                         "another call or an expression)")
+        name = path[-1] if path else base
+        self.check_callbacks(name, node.args)
+        self.check_growth(name, [*node.args, node.func])
+        local = self.local(base)
+        if local is not None:
+            self.reference(node.func, callee=True)
+            if path or computed:
+                raise refuse("a function cannot be called through a field of a variable")
+            if local.kind == "func":
+                if local.depth < self.func_depth:
+                    raise refuse("a function cannot call a variable from outside itself "
+                                 "(no recursion or callbacks into your own code)")
+                self.charge(self.mult * local.cost)
+            elif local.kind != "alias":
+                raise refuse(f"{base} is not a function written in this script, so it cannot "
+                             "be called")
             return
-        depth = self.local_depth(base)
-        if depth is not None:
-            self.reference(func, callee=True)
-            if depth < self.func_depth:
-                raise refuse("a function cannot call a variable from outside itself "
-                             "(no recursion or callbacks into your own code)")
-            return
-        if base.startswith(OWN_PREFIX) and self.func_depth:
-            raise refuse("a function cannot call your own MF_ functions (no recursion)")
-        kind = self.reference(func, callee=True)
+        if base.startswith(OWN_PREFIX):
+            raise refuse("your own MF_ variables hold values; they cannot be called")
+        kind = self.reference(node.func, callee=True)
+        if kind == "data":
+            raise refuse(f"{'.'.join([base, *path])} is data, not a function")
+        if kind == "action" and path and not base.startswith("C_"):
+            raise refuse(f"{'.'.join([base, *path])}() is not allowed: only reading functions "
+                         "(Get..., Is..., Has...) can be called through a game table")
         if base == "SetCVar" and not path:
             self.check_setcvar(node)
         if kind == "action":
             self.count_action(".".join([base, *path]))
 
     def method_call(self, node: Call) -> None:
-        """``receiver:method(...)``: only harmless methods on game objects."""
-        self.check_banned(node.method)
-        receiver = node.func
+        """``receiver:method(...)``: only reading, printing and string methods, on any receiver."""
+        method, receiver = node.method, node.func
+        self.check_banned(method)
         self.visit_chain_parts(receiver)
         base, path, computed = self.chain(receiver)
-        if base is None or self.local_depth(base) is not None:
-            if base is not None:
-                self.check_banned(base)
-            return
-        self.check_global(base, path, computed)
-        method = node.method
-        if not (method in self.rules.output_methods or self.rules.query_member.match(method)):
-            raise refuse(f"{base}:{method}() is not allowed (scripts may only read from, or "
-                         "add messages to, game objects)")
+        if base is None:
+            for name in path:
+                self.check_field(name)
+        elif self.local(base) is not None:
+            for name in [base, *path]:
+                self.check_banned(name)
+        else:
+            self.check_global(base, path, computed)
+        rules = self.rules
+        if not (method in rules.output_methods or method in rules.string_methods
+                or rules.query_member.match(method)):
+            raise refuse(f":{method}() is not allowed (scripts may only read from, or add "
+                         "messages to, game objects, and use string methods)")
+        self.check_callbacks(method, node.args)
+        self.check_growth(method, [receiver, *node.args])
 
     def check_setcvar(self, node: Call) -> None:
         """``SetCVar`` needs a plain setting name that is not on the denied list."""
@@ -306,15 +485,20 @@ class _Checker:
                          f"(this script has {self.actions} actions; the limit is "
                          f"{self.max_actions})")
 
-    def function(self, node: Func) -> None:
-        """A function expression: its own scope, with its parameters as locals."""
+    def function(self, node: Func) -> int:
+        """A function expression: its own scope and work count; returns the work of one call."""
         self.func_depth += 1
         self.scopes.append({})
+        saved = self.mult, self.work
+        self.mult, self.work = 1, 0
         for param in node.params:
             self.declare(param)
         self.block(node.body, new_scope=False)
+        cost = self.work
+        self.mult, self.work = saved
         self.scopes.pop()
         self.func_depth -= 1
+        return cost
 
     # -- statements ------------------------------------------------------------------------
     def block(self, body: list[Stat], new_scope: bool = True) -> None:
@@ -326,22 +510,37 @@ class _Checker:
         if new_scope:
             self.scopes.pop()
 
+    def alias_of(self, node: object) -> bool:
+        """Is this expression a safe game function (``local f = format``) that may be called?"""
+        base, path, computed = self.chain(node)
+        if base is None or computed or not isinstance(unwrap(node), (Name, Index)):
+            return False
+        if self.local(base) is not None or base.startswith(OWN_PREFIX):
+            return False
+        return self.classify(base, path) in ("free", "query") and not (
+            base in self.rules.free_namespaces and not path)
+
     def statement(self, stat: Stat) -> None:
         """Walk one statement."""
         kind = stat.kind
         if kind in ("while", "repeat"):
             raise refuse("loops that can run forever (while, repeat) are not allowed; use for")
         if kind == "local":
+            found: list[tuple[str, int]] = []
             for expr in stat.exprs:
-                self.expr(expr)
-            for name in stat.names:
-                self.declare(name)
+                if isinstance(expr, Func):
+                    found.append(("func", self.function(expr)))
+                else:
+                    self.expr(expr)
+                    found.append(("alias" if self.alias_of(expr) else "value", 0))
+            for index, name in enumerate(stat.names):
+                what, cost = found[index] if index < len(found) else ("value", 0)
+                self.declare(name, what, cost)
         elif kind == "localfunction":
-            self.declare(stat.names[0])
-            self.function(stat.func)
+            local = self.declare(stat.names[0], "func")
+            local.cost = self.function(stat.func)
         elif kind == "function":
-            self.check_target(stat.targets[0])
-            self.function(stat.func)
+            raise refuse("declare a function with local function, not as a global or a field")
         elif kind == "assign":
             for expr in stat.exprs:
                 self.expr(expr)
@@ -372,54 +571,78 @@ class _Checker:
             raise refuse("cannot assign to this")
         for name in [base, *path]:
             self.check_banned(name)
-        if self.local_depth(base) is None and not base.startswith(OWN_PREFIX):
+        local = self.local(base)
+        if local is None and not base.startswith(OWN_PREFIX):
             raise refuse(f"{base} is a game name: scripts may only create variables with local "
                          f"or names starting {OWN_PREFIX}")
+        if local is not None and not path and local.kind != "value":
+            raise refuse(f"{base} holds a function and cannot be given another value")
 
-    def loop(self, stat: Stat, names: list[str]) -> None:
-        """Walk a loop body one level deeper."""
+    def loop(self, stat: Stat, names: list[str], trips: int) -> None:
+        """Walk a loop body one level deeper; ``trips`` is the most times it can run."""
         self.loop_depth += 1
         if self.loop_depth > self.rules.max_loop_depth:
             raise refuse(f"loops may be nested at most {self.rules.max_loop_depth} deep")
+        saved = self.mult
+        self.mult = saved * max(trips, 1)
+        self.charge(self.mult)
+        self.carried.append(assigned_in(stat.body))
         self.scopes.append({})
         for name in names:
             self.declare(name)
         self.block(stat.body, new_scope=False)
         self.scopes.pop()
+        self.carried.pop()
+        self.mult = saved
         self.loop_depth -= 1
 
-    def bound_ok(self, node: object) -> bool:
-        """A loop count we can trust: a small literal, or the length of something."""
-        if isinstance(node, Paren):
-            return self.bound_ok(node.expr)
-        if isinstance(node, Lit):
-            return node.kind == "number" and abs(node.value) <= self.rules.max_loop_bound
-        if isinstance(node, Un):
-            return node.op == "#" or (node.op == "-" and self.bound_ok(node.operand))
-        return False
+    @staticmethod
+    def number(node: object) -> float | None:
+        """The value of a plain number written in the script (``5``, ``-5``), else None."""
+        if isinstance(node, Lit) and node.kind == "number":
+            return node.value
+        if isinstance(node, Un) and node.op == "-" and isinstance(node.operand, Lit) \
+                and node.operand.kind == "number":
+            return -node.operand.value
+        return None
 
     def numeric_for(self, stat: Stat) -> None:
-        """``for i = a, b[, step]``: counts must be small literals or ``#something``."""
-        for expr in stat.exprs:
-            if not self.bound_ok(expr):
-                raise refuse("a for loop needs plain numbers up to "
-                             f"{self.rules.max_loop_bound} (or #list) as its range")
+        """``for i = a, b[, step]``: written-out numbers (or ``#list``), a whole non-zero step."""
+        limit = self.rules.max_loop_bound
+        values = [self.number(e) for e in stat.exprs]
+        for index, (expr, value) in enumerate(zip(stat.exprs, values)):
+            counted = index < 2 and isinstance(expr, Un) and expr.op == "#"
+            if value is None and not counted or value is not None and not abs(value) <= limit:
+                raise refuse(f"a for loop needs plain numbers up to {limit} (or #list) as its "
+                             "range, and a whole number as its step")
             self.expr(expr)
-        if len(stat.exprs) == 3 and isinstance(stat.exprs[2], Lit) and stat.exprs[2].value == 0:
-            raise refuse("a for loop step cannot be 0")
-        self.loop(stat, stat.names)
+        if len(values) == 3 and not (values[2] is not None and values[2] == int(values[2])
+                                     and values[2] != 0):
+            raise refuse("a for loop step must be a whole number that is not 0")
+        trips = self.rules.unknown_trips
+        if values[0] is not None and values[1] is not None:
+            step = values[2] if len(values) == 3 else 1
+            span = (values[1] - values[0]) if step > 0 else (values[0] - values[1])
+            trips = max(0, int(span // abs(step)) + 1)
+        self.loop(stat, stat.names, trips)
 
     def generic_for(self, stat: Stat) -> None:
-        """``for k, v in iterator``: only ipairs, pairs and gmatch."""
+        """``for k, v in iterator``: only the game's own ipairs, pairs and gmatch."""
         only = stat.exprs[0] if len(stat.exprs) == 1 else None
+        message = "for ... in needs ipairs(...), pairs(...) or gmatch(...)"
         if not isinstance(only, Call):
-            raise refuse("for ... in needs ipairs(...), pairs(...) or gmatch(...)")
+            raise refuse(message)
+        if only.method is not None:
+            allowed = only.method == "gmatch"
+        else:
+            base, path, _computed = self.chain(only.func)
+            allowed = base is not None and self.local(base) is None and (
+                (not path and base in ("ipairs", "pairs", "gmatch"))
+                or (base == "string" and path == ["gmatch"]))
+        if not allowed:
+            raise refuse(message)
         self.expr(only)
-        base, path, _computed = self.chain(only.func)
-        name = only.method or (path[-1] if path else base)
-        if name not in ("ipairs", "pairs", "gmatch"):
-            raise refuse("for ... in needs ipairs(...), pairs(...) or gmatch(...)")
-        self.loop(stat, stat.names)
+        self.loop(stat, stat.names, self.rules.unknown_trips)
 
 
 def check_script(code: str, max_actions: int | None = None, known: ApiKnowledge | None = None,
@@ -435,10 +658,9 @@ def script_lines(body: str) -> list[str]:
     """The code of each ``/run`` line of a script macro body; anything else is refused."""
     codes = []
     for line in body.split("\n"):
-        text = line.strip()
-        if not text:
+        if not line:
             continue
-        match = re.match(r"^/run\s+(\S.*)$", text)
+        match = _RUN_LINE.match(line)
         if not match:
             raise refuse("every line of a script macro must start with /run (use /run, not "
                          "/script, and no other commands)")
@@ -468,9 +690,17 @@ def rules_summary(rules: Rules | None = None, max_actions: int | None = None) ->
     lines = [
         f"- At most {limit} state-changing call(s) per script, never inside a loop or function "
         "(one key press does one thing). Reading information and printing are unlimited.",
-        f"- for loops: plain numbers up to {rules.max_loop_bound} or #list, nested at most "
-        f"{rules.max_loop_depth} deep; for ... in only with ipairs, pairs or gmatch. No while, "
-        "repeat or recursion.",
+        f"- for loops: plain numbers up to {rules.max_loop_bound} or #list (a whole, non-zero "
+        f"step), nested at most {rules.max_loop_depth} deep and about {rules.max_work} steps in "
+        "total; for ... in only with ipairs, pairs or gmatch. No while, repeat or recursion.",
+        "- Functions are declared with local function (or local f = function) and called by that "
+        "name; they cannot be stored in tables, passed around or call each other. A game function "
+        "may be stored in a local (local f = format) if it only reads or prints.",
+        "- Through a game table only reading functions (Get..., Is..., Has...) can be called, "
+        "except in C_ namespaces; the only methods allowed on any object are reading ones "
+        "(Get..., Is..., Has...), AddMessage and string methods.",
+        "- Inside a loop: no gsub, and a string may only be extended with something the loop does "
+        "not change.",
         f"- New global variables must start with {OWN_PREFIX}; everything else is local.",
         "- Refused names (any use): " + ", ".join(sorted(rules.banned)) + ".",
         "- Refused whole systems: " + ", ".join(sorted(rules.denied_namespaces)) + ".",

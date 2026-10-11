@@ -434,7 +434,7 @@ class LowFindings(unittest.TestCase):
                 startup.remove_startup()
             self.assertTrue(target.exists())
             made = startup.install_startup(self.settings, Path(self.sb.project / "macroforge.py"), False)
-            self.assertTrue(made.read_text(encoding="utf-8").startswith(startup.MARKER))
+            self.assertTrue(startup.read_launcher(made).startswith(startup.MARKER))
             startup.remove_startup()
             self.assertFalse(target.exists())
 

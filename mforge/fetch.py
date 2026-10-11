@@ -118,8 +118,11 @@ def download_table(settings: Settings, table: str, build: str, dest: Path) -> No
                     raise ValidationError(
                         f"{table}: download is larger than {MAX_TABLE_BYTES} bytes")
                 out.write(chunk)
-        with open(part, encoding="utf-8-sig", newline="") as handle:
-            header = next(csv.reader([handle.readline()]), [])
+        try:
+            with open(part, encoding="utf-8-sig", newline="") as handle:
+                header = next(csv.reader([handle.readline()]), [])
+        except (UnicodeDecodeError, csv.Error):
+            raise ValidationError(f"{table}: not a text CSV file") from None
         missing = [c for c in required if c not in header]
         if missing:
             raise ValidationError(f"{table}: not the expected CSV (missing columns {missing})")

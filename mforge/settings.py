@@ -70,7 +70,8 @@ def validate_llm_url(url: str) -> str:
     """The chat endpoint's base URL, or ``ConfigError``.
 
     https is required; plain http is allowed only for this PC (a local model server), so an API key
-    can never travel unencrypted. No user name or password in the URL, no look-alike host names.
+    can never travel unencrypted. No user name or password in the URL. The host is whatever you
+    choose: only point it at a service you trust with your requests and key.
     """
     parts = urlparse(url)
     try:

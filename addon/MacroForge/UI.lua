@@ -40,9 +40,11 @@ local panel, refreshPanel  -- the side panel (built on first use) and the functi
 local lastStatus = "Ready."
 local MODE = {
     macro = { heading = "Ask for a macro", idle = "Ready.", ideas = "Macro ideas",
+              hint = "Ask for a macro, or ask a question about macros...",
               desc = "Describe what you want in plain English. Your PC builds it and the macro appears "
                      .. "here automatically, usually within a minute." },
     script = { heading = "Ask for a script", ideas = "Script examples",
+               hint = "Ask for a script, or ask a question about scripts...",
                desc = "Describe a short script, such as \"print my coordinates\". Your PC writes it, "
                       .. "checks it and adds it as a macro, usually within a minute." },
 }
@@ -118,6 +120,7 @@ local function setMode(mode)
     MODE.script.idle = core.scriptNote or ""
     if lastStatus == MODE.macro.idle or lastStatus == MODE.script.idle then setStatus(MODE[mode].idle) end
     if window.ideasButton then window.ideasButton:SetText(MODE[mode].ideas) end
+    if window.hint then window.hint:SetText(MODE[mode].hint) end
     if panel and panel:IsShown() and panel.view == "ideas" then refreshPanel() end
 end
 
@@ -441,8 +444,11 @@ local function buildWindow()
     scroll:SetScrollChild(edit)
     frame.edit = edit
     local counter = label(frame, "0/500", "GameFontDisableSmall", 80, LEFT, -192)
+    -- a grey hint over the empty box, so it is clear that questions are fine too
+    frame.hint = label(scroll, MODE.macro.hint, "GameFontDisableSmall", WIDTH - 2 * LEFT - 44, 4, -4)
     edit:SetScript("OnTextChanged", function(self)
         counter:SetText(("%d/500"):format(#self:GetText()))
+        frame.hint:SetShown(self:GetText() == "")
     end)
     edit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     scroll:EnableMouse(true)

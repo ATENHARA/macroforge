@@ -11,6 +11,7 @@ import csv
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 import time
@@ -23,19 +24,20 @@ from . import llm
 from .assets import load_toml
 from .checker import check_spec
 from .errors import MacroForgeError, ValidationError
-from .fsutil import atomic_write_text, system_exe
+from .fsutil import atomic_write_bytes, atomic_write_text, system_exe
 from .install import build_addon, install
 from .savedvars import load_sv
 from .settings import Settings
 from .shots import GIVE_UP_SECONDS, ShotScanner, cleanup, read_request, retry_stuck
 from .spec import (changed_macros, check_removals, describe_changes, diff_specs, load_spec,
                    read_spec, resolve_spec)
-from .validate import Request, norm, parse_request, sanitize_reply
+from .validate import Request, check_blocked, clean_macro, parse_request, sanitize_reply
 
 log = logging.getLogger("mforge.watcher")
 
 HOUR = 3600
 MAX_BACKUPS = 50
+MAX_HANDLED = 1000  # answered request ids remembered (the newest)
 MAX_REPLIES_KEPT = 20
 
 
@@ -119,12 +121,17 @@ class WatchState:
         if isinstance(raw, list):  # older format: just the ids
             raw = {"handled": raw}
         if isinstance(raw, dict):
-            state.handled = {i for i in raw.get("handled", []) if isinstance(i, int)}
-            state.recent = [t for t in raw.get("recent", []) if isinstance(t, (int, float))]
+            handled, recent = raw.get("handled"), raw.get("recent")
+            if isinstance(handled, list):
+                state.handled = {i for i in handled if isinstance(i, int)}
+            if isinstance(recent, list):
+                state.recent = [t for t in recent if isinstance(t, (int, float))]
         return state
 
     def save(self) -> None:
         """Write the state atomically."""
+        # request ids grow with time, so the newest are the ones that can still come back
+        self.handled = set(sorted(self.handled)[-MAX_HANDLED:])
         payload = {"handled": sorted(self.handled), "recent": self.recent}
         atomic_write_text(self.path, json.dumps(payload))
 
@@ -160,7 +167,7 @@ def backup_spec(settings: Settings) -> Path:
     folder = settings.data / "backups"
     folder.mkdir(parents=True, exist_ok=True)
     dest = folder / f"macros-{time.strftime('%Y%m%d-%H%M%S')}.json"
-    dest.write_bytes(settings.spec.read_bytes())
+    atomic_write_bytes(dest, settings.spec.read_bytes())
     for old in sorted(folder.glob("macros-*.json"))[:-MAX_BACKUPS]:
         old.unlink(missing_ok=True)
     return dest
@@ -197,8 +204,15 @@ def _evaluate(settings: Settings, candidate_text: str,
                                   '(entries with "kind": "script")')
         if mode != "script" and is_script:
             raise ValidationError("scripts can only be made with /mf script")
-    resolve_spec(candidate, settings, blocked=settings.blocked_commands)
+    changed = changed_macros(current, candidate)
+    resolve_spec(candidate, settings)  # everything must be valid; the agent rules follow
+    for entry in changed:  # the agent-only rules apply to what it changed, not to your own macros
+        if entry.get("kind") != "script":
+            name, body = clean_macro(entry.get("name"), entry.get("body"))
+            check_blocked(name, body, settings.blocked_commands)
     findings, _verified = check_spec(settings, candidate, agent_mode=True)
+    mine = {entry.get("name") for entry in changed}
+    findings = [(name, f) for name, f in findings if name in mine]
     hard = [f"[{name}] {f.text}" for name, f in findings if f.kind != "spell"]
     if hard:
         raise ValidationError("; ".join(hard)[:250])
@@ -292,6 +306,9 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
             reply = f"Timed out after {settings.agent_timeout_seconds}s; no macros changed."
         except (MacroForgeError, OSError) as exc:
             reply = f"Rejected, nothing changed: {str(exc)[:250]}"
+        except Exception:  # noqa: BLE001 - whatever went wrong, the game still gets an answer
+            log.exception("request %s failed", req.id)
+            reply = "Something went wrong on the PC; nothing was changed (see data/watcher.log)."
     reply = publish(settings, req.id, reply)
     audit(settings, {"req": req.id, "char": req.char, "text": req.text, "reply": reply,
                      "changed": changed, "backup": backup_name, **usage})
@@ -307,6 +324,11 @@ def _mtime(path: Path) -> float | None:
         return None
 
 
+def _name_parts(name: object) -> list[str]:
+    """The words of a character name (``Testy-Mage`` and ``testy mage`` give the same words)."""
+    return re.findall(r"[a-z0-9]+", str(name).lower())
+
+
 def find_export(settings: Settings, char: str = "") -> dict | None:
     """The exported spellbook of this character, searching every account's saved data.
 
@@ -320,10 +342,10 @@ def find_export(settings: Settings, char: str = "") -> dict | None:
             continue
         if isinstance(data, dict):
             exports.append(data)
-    wanted = norm(char)
+    wanted = _name_parts(char)
     for data in exports:
-        first = norm(data.get("char", ""))
-        if wanted and first and wanted.startswith(first):
+        first = _name_parts(data.get("char", ""))
+        if wanted and first and wanted[:len(first)] == first:
             return data
     return exports[0] if exports else None
 

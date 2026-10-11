@@ -85,6 +85,28 @@ class ClaudePromptTests(WatcherCase):
         self.assertNotIn("MACRO ONLY", (workspace / "script-brief.md").read_text(encoding="utf-8"))
 
 
+class QuestionPromptTests(WatcherCase):
+    """Questions about macros and scripts are welcome; everything else is declined in one line."""
+
+    def test_every_prompt_welcomes_macro_and_script_questions_and_declines_the_rest(self):
+        from mforge.assets import read_text
+        for name in ("prompt.md", "prompt_script.md", "prompt_chat.md", "prompt_chat_script.md"):
+            text = read_text(name)
+            with self.subTest(prompt=name):
+                self.assertIn("Questions are welcome", text)
+                self.assertIn("I'm not sure", text)
+                self.assertIn("only help with macros and scripts", text)
+
+    def test_the_in_game_status_for_an_unchanged_reply_matches_what_the_pc_writes(self):
+        from mforge.spec import describe_changes
+        empty = {"added": [], "edited": [], "removals": [], "dropped": []}
+        addon = (self.settings.root / "addon" / "MacroForge" / "MacroForge.lua").read_text(
+            encoding="utf-8")
+        summary = f"[{describe_changes(empty)}] "
+        self.assertIn(f'"{summary}"', addon)
+        self.assertIn(f"sub(1, {len(summary)})", addon)
+
+
 class ChatPromptTests(LlmCase):
     def setUp(self):
         super().setUp()

@@ -27,7 +27,7 @@ Never work around a refusal; the denied functions are the safety boundary. Scrip
   the pictures, the addon's `Codec.lua` draws them, `UI.lua` is the minimap button and window; `setup.py` is the first-run wizard behind `setup.cmd`; `agent.py` runs the Claude CLI, `luaparse.py` and `luacheck.py` check `/run` scripts, `suggest.py` builds the checked macro ideas and script examples shown in the window (`resources/suggestions.toml`), `llm.py` talks to
   OpenAI-style chat endpoints and `keystore.py` keeps its API key in Credential Manager; the watcher picks one with `agent_backend`);
   prompt text and command/conditional lists live in `mforge/resources/`, not in code.
-- Run the tests before and after: `python -m unittest discover -s tests` (about a minute and a half, no game needed).
+- Run the tests before and after: `python -m unittest discover -s tests` (about two and a half minutes, no game needed).
   `tests/test_style.py` enforces the style rules below.
 - Rules: library code raises `MacroForgeError` subclasses (only `cli.py` turns them into exit codes); no
   file, network or environment access at import time (call `Settings.load()` explicitly); everything that

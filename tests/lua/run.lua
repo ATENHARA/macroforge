@@ -940,6 +940,7 @@ test("a script macro is installed and the Blizzard warning is explained once", f
     eq(names(w.account), "Coords")
     truthy(chat_has(w, "Blizzard shows a warning"), chat_dump(w))
     truthy(chat_has(w, "appears for every custom script"), chat_dump(w))
+    truthy(chat_has(w, "No check is perfect"), chat_dump(w))
     eq(w.env.MacroForgeUI.scriptNoticeSeen, true)
     w.chat = {}
     w.env.SlashCmdList.MACROFORGE("")
@@ -1575,6 +1576,92 @@ test("the window keeps its layout: the new buttons sit above Apply and nothing o
     truthy(apply.props.Point[5] < ideas.props.Point[5] - 24, "Apply must be below the new row")
     truthy(advanced.props.Point[5] < apply.props.Point[5] - 24)
     truthy(window_of(w).props.Size[2] >= 412)
+end)
+
+-- questions ---------------------------------------------------------------------------------------------
+
+local function slot_with_answer(rev, req, text)
+    return string.format('MacroForgeSlotData = { rev = %d, account = {}, chars = {}, remove = { account = {}, chars = {} }, replies = { { id = 1, req = %d, text = "%s" } } }',
+        rev, req, text)
+end
+
+local function ask_and_answer(text)
+    local w = ui_world()
+    w.addon_files["MacroForge_S001"] = slot_source(150)
+    w.env.SlashCmdList.MACROFORGE("ask what does mod shift do")
+    click(w.env.MacroForgeMinimapButton)
+    local id = w.env.MacroForgeRequests[1].id
+    w.advance(2.2)
+    w.addon_files["MacroForge_S002"] = slot_with_answer(300, id, text)
+    w.advance(30)
+    return window_of(w).status:GetText()
+end
+
+test("an answer that changed nothing is not announced as a ready macro", function()
+    local status = ask_and_answer("[No macro changes] It is true while you hold Shift.")
+    truthy(status:find("Nothing was changed", 1, true), status)
+    truthy(not status:find("is ready", 1, true), status)
+end)
+
+test("a reply that changed a macro still says the macro is ready", function()
+    local status = ask_and_answer("[Added: Fear MO] Casts Fear.")
+    truthy(status:find("Your macro is ready", 1, true), status)
+end)
+
+test("the empty request box shows a hint that questions are welcome, and it follows the mode", function()
+    local w = ui_world()
+    click(w.env.MacroForgeMinimapButton)
+    local window = window_of(w)
+    eq(window.hint:GetText(), "Ask for a macro, or ask a question about macros...")
+    truthy(window.hint.shown)
+    click(w.find("Button", "Script"))
+    eq(window.hint:GetText(), "Ask for a script, or ask a question about scripts...")
+end)
+
+test("the hint disappears as soon as something is typed and returns when the box is emptied", function()
+    local w = ui_world()
+    click(w.env.MacroForgeMinimapButton)
+    local window = window_of(w)
+    window.edit:SetText("what is a conditional?")
+    window.edit.scripts.OnTextChanged(window.edit)
+    truthy(not window.hint.shown, "the hint should be hidden")
+    window.edit:SetText("")
+    window.edit.scripts.OnTextChanged(window.edit)
+    truthy(window.hint.shown, "the hint should be back")
+end)
+
+-- damaged saved variables ---------------------------------------------------------------------------------
+
+test("damaged counters in the saved variables do not stop the login work", function()
+    for _, bad in ipairs({ "text", {}, true, -1 }) do
+        local d = data({ replies = { { id = 5, req = 4, text = "a reply" } } })
+        local w = world({}, d)
+        w.env.MacroForgeSeen = bad
+        w.env.MacroForgeAnswered = bad
+        w.env.MacroForgeRequests = { { id = 9, text = "x" } }
+        w.fire("PLAYER_LOGIN")
+        eq(names(w.account), "Tap")
+        truthy(chat_has(w, "a reply"), chat_dump(w))
+        truthy(not chat_has(w, "error while applying"), chat_dump(w))
+    end
+end)
+
+test("a damaged evidence log does not stop an update", function()
+    local w = world({}, data())
+    w.add_macro("Tap", 136126, "#showtooltip Life Tap\n/cast Old Body", false)
+    w.env.MacroForgeLog = "garbage"
+    w.fire("PLAYER_LOGIN")
+    eq(w.account[1].body:gsub("%s+$", ""), "#showtooltip Life Tap\n/cast Life Tap")
+    eq(type(w.env.MacroForgeLog), "table")
+end)
+
+test("an error while applying is reported and the login message still appears", function()
+    local w = world({}, data())
+    w.env.MacroForgeRequests = { { id = 9, text = "x" } }
+    w.env.InCombatLockdown = function() error("boom") end
+    w.fire("PLAYER_LOGIN")
+    truthy(chat_has(w, "error while applying macros"), chat_dump(w))
+    truthy(chat_has(w, "waiting for the PC watcher"), chat_dump(w))
 end)
 
 -- run ---------------------------------------------------------------------------------------------------

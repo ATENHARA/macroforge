@@ -56,6 +56,46 @@ class RequestModeTests(unittest.TestCase):
             parse_request(request_from_payload(payload.encode()), CLASSES)
 
 
+class OwnMacroGateTests(WatcherCase):
+    """The agent-only rules apply to what a request changes, not to the player's own macros."""
+
+    MINE = [{"name": "Mine Run", "body": "/run print('hi')"},
+            {"name": "Mine Click", "body": "/click StaticPopup1Button1"},
+            {"name": "Mine Addon", "body": "/dbm pull 10"}]
+
+    def setUp(self):
+        super().setUp()
+        spec = json.loads(self.spec_text())
+        spec["macros"].extend(dict(m, icon=134400) for m in self.MINE)
+        self.sb.write_macros(spec)
+        self.current = spec
+
+    def candidate(self, *entries, edit=None):
+        spec = json.loads(json.dumps(self.current))
+        for entry in spec["macros"]:
+            if edit and entry["name"] == edit[0]:
+                entry["body"] = edit[1]
+        spec["macros"].extend(entries)
+        return json.dumps(spec)
+
+    def test_a_request_is_not_refused_because_of_your_own_macros(self):
+        _spec, _warnings, text = watcher._evaluate(self.settings, self.candidate(NEW_MACRO), "macro")
+        self.assertIn("Corr", text)
+
+    def test_the_new_macro_itself_is_still_checked(self):
+        for body in ("/run print(1)", "/dbm pull 10", "/click X"):
+            with self.subTest(body=body), self.assertRaises(ValidationError):
+                watcher._evaluate(self.settings, self.candidate(dict(NEW_MACRO, body=body)), "macro")
+
+    def test_an_edit_of_your_macro_is_checked_like_any_change(self):
+        with self.assertRaises(ValidationError):
+            watcher._evaluate(self.settings, self.candidate(edit=("Mine Run", "/run print(2)")), "macro")
+        watcher._evaluate(self.settings, self.candidate(edit=("Mine Run", "/cast Fear")), "macro")
+
+    def test_a_script_request_is_not_refused_because_of_your_own_macros_either(self):
+        watcher._evaluate(self.settings, self.candidate(SCRIPT), "script")
+
+
 class SpecKindTests(WatcherCase):
     def spec(self, *entries):
         spec = json.loads(self.spec_text())

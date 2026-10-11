@@ -71,19 +71,39 @@ mode, their own AI instructions (`reference/script-brief.md`) and their own chec
 rules in `mforge/resources/script_rules.toml`). A request carries its mode; a script request may only add or
 change scripts and a macro request may never contain `/run`, `/script` or a script entry.
 
-The checker parses the Lua (the same grammar as the game's Lua 5.1) and refuses, with a reason:
-- dynamic access (`_G`, `loadstring`, `getfenv`, computed names like `["Send".."Chat"]`), `os`, `io`,
-  `debug` and the like, so a denied function cannot be reached indirectly;
-- families of functions: chat and social, mail, trade, auction, guild and party administration, item and
-  gold actions, casting and targeting, accepting or confirming prompts, movement, logout and session,
-  and changing macros, bindings or addons; a list of settings (CVars) that `SetCVar` may not touch;
-- timers, frames, hooks and events, `while`/`repeat`/`goto`, loops with unbounded or deep limits,
-  `string.rep`, and global variables that do not start with `MF_`;
+The checker parses the Lua (the same grammar as the game's Lua 5.1, with parity tested against LuaJIT)
+and refuses, with a reason shown to the player:
+- dynamic access (`_G`, `loadstring`, `getfenv`, `pcall`, `getglobal`, computed names like
+  `["Send".."Chat"]`), `os`, `io`, `debug` and the like, so a denied function cannot be reached indirectly;
+- the game's command dispatchers (`SlashCmdList`, `RunMacroText`, ...) and families of functions: chat and
+  social, mail, trade, auction, guild and party administration, item and gold actions, casting and
+  targeting, accepting or confirming prompts, movement, logout and session, and changing macros, bindings
+  or addons; a list of settings (CVars) that `SetCVar` may not touch;
+- **calls that cannot be traced to a name**: only a named function can be called, never the result of
+  another call or an expression. A function stored in a variable can only be called if it was written in
+  the script, and the only methods allowed on any object (including locals and call results) are reading
+  ones (`Get...`, `Is...`, `Has...`), `AddMessage` and string methods. Through a game table (other than a
+  `C_` namespace) only reading functions can be called. Functions are declared with `local function`, never
+  stored in tables, and cannot call each other or themselves;
+- timers, frames, hooks and events, `while`/`repeat`/`goto`, and global variables that do not start with
+  `MF_`;
+- loops that could freeze the game: loop ranges and steps must be plain whole numbers (or `#list`), loops
+  nest at most 2 deep, the total of loop steps is bounded (a function's loops count every time it is
+  called), `for ... in` only uses the game's own `pairs`, `ipairs` and `gmatch`;
+- strings that could grow without limit: no `string.rep`, a variable joined with itself, `gsub` in a
+  loop, or a loop that feeds a string back into itself more than once;
 - more than `script_max_actions` (default 1) state-changing calls, or one inside a loop or function.
 
 Everything else the client exposes is allowed. With probe data (`/mf probe`, then `report`) a function that
 does not exist in this game is also refused; only names Blizzard defined are recorded (never other addons').
 The addon compiles each script with `loadstring` before installing it (it is never run by MacroForge).
+
+This is a static check, not a sandbox: it makes the harmful scripts the AI could plausibly write hard to
+produce, and a determined author may still find a way around it, so the real protection is that a script
+only runs when *you* press the macro and that the game's own taint rules block protected functions. An
+independent adversarial review found and fixed a number of bypasses (calls through parentheses, method
+calls on locals, dispatcher tables, endless loops); every one of them is a regression test in
+`tests/test_luacheck_bypass.py`.
 
 **Blizzard's rules, honestly:** the game shows "You are attempting to run a custom script..." for every
 custom script; it is a warning, not a penalty. Blizzard's add-on policy does not mention macros or
@@ -129,8 +149,10 @@ The repository's tests refuse commits that contain personal details (`tests/test
   `remove` entry already deleted).
 - The blocked-command list (`/script`, `/run`, `/dump`, `/console`, `/tinspect`, `/click`, `/logout`,
   `/quit`, guild administration and a few more; see `mforge/resources/defaults.toml`) is a denylist on top
-  of the allowlist, and applies only to agent-written macros. Whether every dev-tool command on the Forever
-  client evaluates Lua is not known; the allowlist is what keeps them out.
+  of the allowlist, and applies only to what a request adds or changes (not to your own macros). The wiki
+  command list itself contains these commands, so it is this denylist (`blocked_commands` in `config.json`)
+  that keeps them out of agent macros, and clearing it removes that protection. Whether every dev-tool
+  command on the Forever client evaluates Lua is not known.
 - Third-party data (the wago.tools tables and the wow-listfile icon names) is shown to the agent. It is
   size-limited and format-checked but not signed, so a poisoned download could try to steer the model
   (prompt injection); the sandbox and the validation above limit the damage. The host allowlist also

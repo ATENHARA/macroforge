@@ -1,13 +1,14 @@
 """Run the watcher hidden at Windows login by placing a small launcher in the Startup folder."""
 from __future__ import annotations
 
+import codecs
 import os
 import subprocess
 import sys
 from pathlib import Path
 
 from .errors import ValidationError
-from .fsutil import system_exe
+from .fsutil import atomic_write_bytes, system_exe
 from .settings import Settings
 
 LAUNCHER_NAME = "MacroForge Watcher.vbs"
@@ -59,6 +60,13 @@ def launch_detached(command: list[str]) -> None:
         subprocess.Popen(command, creationflags=DETACHED, close_fds=True)
 
 
+def read_launcher(path: Path) -> str:
+    """The text of a launcher file (UTF-16 with a byte-order mark, or UTF-8 from older versions)."""
+    data = Path(path).read_bytes()
+    utf16 = data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+    return data.decode("utf-16" if utf16 else "utf-8")
+
+
 def install_startup(settings: Settings, script: Path, start_now: bool) -> Path:
     """Write the launcher (and start it now if asked). Returns its path."""
     pythonw = Path(sys.executable).with_name("pythonw.exe")
@@ -66,7 +74,10 @@ def install_startup(settings: Settings, script: Path, start_now: bool) -> Path:
         raise ValidationError("pythonw.exe not found next to python.exe")
     target = startup_file()
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(launcher_text(settings.root, pythonw, script.resolve()), encoding="utf-8")
+    # Windows Script Host reads a .vbs as ANSI unless it has a UTF-16 mark: a path with accented
+    # characters would be garbled in a UTF-8 file.
+    text = launcher_text(settings.root, pythonw, script.resolve())
+    atomic_write_bytes(target, codecs.BOM_UTF16_LE + text.encode("utf-16-le"))
     if start_now:
         launch_detached([system_exe("wscript.exe"), str(target)])
     return target
@@ -77,7 +88,7 @@ def remove_startup() -> Path:
     target = startup_file()
     if target.exists():
         try:
-            first = target.read_text(encoding="utf-8").splitlines()[0]
+            first = read_launcher(target).splitlines()[0]
         except (OSError, UnicodeDecodeError, IndexError):
             first = ""
         if first != MARKER:

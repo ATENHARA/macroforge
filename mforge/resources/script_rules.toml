@@ -9,6 +9,8 @@
 max_actions = 1        # state-changing calls per script (one key press = one action)
 max_loop_depth = 2     # nested loops
 max_loop_bound = 1000  # largest literal loop count
+max_work = 20000       # most loop steps a script may add up to (loops multiply, functions too)
+unknown_trips = 100    # assumed length of #list and of pairs/ipairs/gmatch loops
 
 # Whole namespaces that are only ever actions on other players, mail, trades, auctions or timers.
 denied_namespaces = [
@@ -32,6 +34,21 @@ _G = "reaches any global by name"
 _ENV = "reaches any global by name"
 getfenv = "reaches any global by name"
 setfenv = "changes what code can see"
+SlashCmdList = "runs slash commands (and so any code) from text"
+SecureCmdList = "runs slash commands from text"
+hash_SlashCmdList = "runs slash commands from text"
+hash_SecureCmdList = "runs slash commands from text"
+RunMacroText = "runs macro text, which can contain any command"
+RunMacro = "runs a macro"
+RunBinding = "runs a key binding"
+pcall = "calls a function without the usual checks"
+xpcall = "calls a function without the usual checks"
+getglobal = "reaches any global by name"
+setglobal = "writes any global by name"
+seterrorhandler = "makes code run later by itself"
+geterrorhandler = "reaches the game's error handler"
+ChatFrame_OpenChat = "types into the chat box"
+strrep = "can build enormous strings"
 rawget = "reads tables behind the game's back"
 rawset = "writes tables behind the game's back"
 getmetatable = "reaches hidden functions"
@@ -70,7 +87,7 @@ C_Timer = "makes code run later by itself (a timer)"
 [free]
 globals = [
   "print", "select", "type", "tostring", "tonumber", "pairs", "ipairs", "next", "unpack", "assert",
-  "error", "pcall", "format", "random", "abs", "floor", "ceil", "max", "min", "sqrt", "mod",
+  "error", "format", "random", "abs", "floor", "ceil", "max", "min", "sqrt", "mod",
   "strsub", "strlen", "strfind", "strlower", "strupper", "strsplit", "strjoin", "strtrim",
   "strmatch", "strbyte", "strchar", "strreplace", "gsub", "gmatch", "tinsert", "tremove", "wipe",
   "date", "time", "GetTime", "random", "sin", "cos", "tan", "deg", "rad", "log", "exp",
@@ -78,6 +95,15 @@ globals = [
 namespaces = ["math", "string", "table", "bit", "Enum"]
 output_globals = ["print", "PlaySound", "PlaySoundFile"]
 output_methods = ["AddMessage"]
+# Methods of strings (and so of any value a script holds), harmless on anything.
+string_methods = ["format", "sub", "lower", "upper", "len", "find", "match", "gmatch", "gsub",
+                  "byte", "reverse"]
+# Functions that call a function they are given: only functions written in the script may be passed.
+higher_order = ["gsub", "sort", "tsort", "foreach", "foreachi", "securecall"]
+# Not allowed inside loops (they can grow a string without limit), and the string builders that may
+# use a variable the loop changes only once.
+no_loop_functions = ["gsub", "strreplace"]
+growers = ["format", "strjoin", "concat", "tconcat"]
 # Read-only looking names: free to call as often as wanted.
 query_name = "^(Get|Is|Has|Can|Unit)[A-Za-z0-9_]*$"
 query_member = "^(Get|Is|Has|Can|Find|Does)[A-Za-z0-9_]*$"

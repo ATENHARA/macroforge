@@ -43,6 +43,14 @@ the exact list of refused names. The request message tells you the character, cl
   macro instead.)
 - **No tricks to reach hidden functions:** `_G`, `getfenv`, `loadstring`, computed names such as
   `C_Map[name]`, and so on.
+- **Calls need a name you can see:** write `local function f() ... end` for helpers (call them from the
+  top level only; they cannot call each other or themselves, or be stored in tables). Methods on any
+  object are limited to `Get...`/`Is...`/`Has...`, `AddMessage` and string methods (`s:upper()`), so do
+  not write `frame:Hide()` or `frame:SetText()`. No `pcall`. A game function may be kept in a local
+  (`local f = format`) if it only reads or prints.
+- **Loops stay small:** `for i = 1, 10` with plain numbers (up to 1000, whole-number step), at most 2 deep
+  and a few thousand steps in all; `for ... in` only with `ipairs`, `pairs` or `gmatch`. Inside a loop do not
+  use `gsub`, and only extend a string with something the loop does not change (`s = s .. i` is fine).
 - **Variables:** use `local` for everything. If a value must survive until the next press (cycling a
   list), use one global whose name starts with `MF_`, for example `MF_i`.
 

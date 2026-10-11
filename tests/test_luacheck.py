@@ -238,24 +238,24 @@ class StructuralRuleTests(unittest.TestCase):
 
     def test_recursion_and_callbacks_into_your_own_code_are_refused(self):
         refused(self, "local function f() return f() end f()", "recursion")
-        refused(self, "local f; f=function() return f() end f()", "recursion")
-        refused(self, "MF_f=function() return MF_f() end", "recursion")
-        refused(self, "local a=1;local function f() return a() end", "recursion")
+        refused(self, "local f; f=function() return f() end f()", "declared with local")
+        refused(self, "MF_f=function() return MF_f() end", "declared with local")
+        refused(self, "local a=1;local function f() return a() end", "cannot be called")
         check_script("local function f(x) return x*2 end print(f(2))")
         check_script("table.sort({3,1},function(a,b) return a<b end)")
 
     def test_a_string_joined_with_itself_in_a_loop_is_refused(self):
         refused(self, 'local s="a";for i=1,5 do s=s..s end', "grows without limit")
         check_script('local s="";for i=1,5 do s=s..i end print(s)')
-        check_script('local s="a";s=s..s;print(s)')  # once is fine
+        refused(self, 'local s="a";s=s..s;print(s)', "joined with itself")
 
     def test_creating_global_variables(self):
         check_script("MF_count=1")
-        check_script("function MF_f() end")
+        refused(self, "function MF_f() end", "declare a function with local")
         refused(self, "x=1", "scripts may only create variables")
         refused(self, "GetFoo=1", "game name")
         refused(self, "string.foo=1", "game name")
-        refused(self, "function print() end", "game name")
+        refused(self, "function print() end", "declare a function with local")
         refused(self, "local a={};a.b=1;SomeTable.field=2", "game name")
         check_script("local a={};a.b=1")
 
@@ -269,12 +269,14 @@ class StructuralRuleTests(unittest.TestCase):
         check_script("print(PlayerFrame:IsShown())")
         refused(self, "PlayerFrame:Hide()", "not allowed")
         refused(self, 'DEFAULT_CHAT_FRAME:Clear()', "not allowed")
-        check_script('local f=GetMouseFocus();f:Hide()')  # a local: the receiver is not a game name
+        refused(self, 'local f=GetMouseFocus();f:Hide()', "not allowed")  # a local is no exception
+        check_script('local f=GetMouseFocus();print(f:GetName())')
 
     def test_actions_must_be_called_directly(self):
         refused(self, "local f=DoEmote;f('a');f('b')", "directly")
         refused(self, 'pcall(DoEmote,"dance")', "directly")
-        check_script('pcall(GetCVar,"x")')  # a query may be passed around
+        refused(self, 'pcall(print,"x")', "pcall")
+        check_script("print(GetTime)")  # a query may be passed around
 
     def test_one_action_per_script_and_none_in_loops_or_functions(self):
         refused(self, 'DoEmote("dance");PetRename("x")', "one thing")
