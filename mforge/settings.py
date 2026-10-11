@@ -29,6 +29,7 @@ KNOWN_KEYS = {
     "fetch_wago_url", "fetch_listfile_api", "delete_request_shots",
     "agent_backend", "llm_base_url", "llm_api_key_env", "llm_max_tokens", "llm_json_mode",
     "llm_retries", "agent_context_file", "script_context_file", "script_max_actions",
+    "confirm_changes_at",
 }
 BACKENDS = ("claude", "openai")  # "openai" = any OpenAI-style chat endpoint (GPT, Ollama, ...)
 DEFAULT_LLM_URL = "https://api.openai.com/v1"
@@ -137,6 +138,7 @@ class Settings:
     agent_context_file: str = ""
     script_context_file: str = ""
     script_max_actions: int = 1
+    confirm_changes_at: int = 3  # macros one request may remove or edit before CONFIRM is needed
 
     # -- derived paths ---------------------------------------------------------------------
     @property
@@ -267,4 +269,5 @@ class Settings:
             agent_context_file=_typed(cfg, "agent_context_file", "", str),
             script_context_file=_typed(cfg, "script_context_file", "", str),
             script_max_actions=_ranged(cfg, "script_max_actions", 1, 1, 5),
+            confirm_changes_at=_ranged(cfg, "confirm_changes_at", 3, 1, 100),
         )

@@ -99,7 +99,9 @@ this after changing the addon (`addon/MacroForge/*.lua`) and after a client upda
 8. **Questions:** the empty request box shows a grey hint that disappears when you type. Ask "what does
    [mod:shift] do in a macro?": the chat shows an answer starting with `[No macro changes]` and the status line says
    nothing was changed (not "your macro is ready"). Ask something off-topic: it is declined in a line.
-9. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
+9. **Bulk changes:** ask for "delete all my macros" when you have 3 or more: the reply lists them and says to add
+   CONFIRM, and nothing changes. Repeat with "confirm: delete all my macros" (use a throwaway character).
+10. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
    `install`, `/mf live`: the chat shows the text with the pipes visible, no color and no link.
 
 Before sharing a new version, also try a **fresh install** on another PC (the real download and the Windows

@@ -6,6 +6,7 @@ Hostile or malformed output from the agent, the chat endpoint, downloads and fil
 from __future__ import annotations
 
 import codecs
+import dataclasses
 import json
 import os
 import unittest
@@ -15,10 +16,12 @@ from unittest import mock
 import tests.test_accounts as accounts
 import tests.test_fetch_startup_cli as fetch_tests
 from mforge import agent, cache, llm, startup, stripcodec, watcher
-from mforge.errors import AgentError, ValidationError
+from mforge.errors import AgentError, ConfigError, ValidationError
+from mforge.settings import Settings
+from mforge.spec import resolve_spec
 from mforge.validate import Request
-from tests.harness import REPO
-from tests.test_agent_watcher import WatcherCase, fake_process
+from tests.harness import REPO, Sandbox
+from tests.test_agent_watcher import NEW_MACRO, WatcherCase, add_macro, fake_process, request
 
 
 def a_request() -> Request:
@@ -119,6 +122,140 @@ class PictureSpeedTests(unittest.TestCase):
             with mock.patch.object(stripcodec, "MAX_TGA_BYTES", 100), reads:
                 with self.assertRaisesRegex(ValidationError, "too large"):
                     stripcodec.read_tga(path)
+
+
+class ConfirmGateTests(WatcherCase):
+    """Removing or editing several macros at once needs the word CONFIRM in the request."""
+
+    NAMES = ["M1", "M2", "M3", "M4"]
+
+    def setUp(self):
+        super().setUp()
+        self.current = {"classes": {"Test Char": "warlock"}, "macros": [
+            {"name": n, "icon": 134400, "body": f"/cast Fear\n/say {n}"} for n in self.NAMES]}
+        self.sb.write_macros(self.current)
+
+    def candidate(self, drop=(), edit=(), add=()):
+        spec = json.loads(json.dumps(self.current))
+        spec["macros"] = [m for m in spec["macros"] if m["name"] not in drop]
+        for macro in spec["macros"]:
+            if macro["name"] in edit:
+                macro["body"] = "/cast Shadow Bolt"
+        spec["macros"].extend(add)
+        spec["remove"] = [{"name": n} for n in drop]
+        return json.dumps(spec)
+
+    def evaluate(self, text="", settings=None, **kw):
+        return watcher._evaluate(settings or self.settings, self.candidate(**kw), "macro", text)
+
+    def test_removing_several_macros_needs_confirm(self):
+        with self.assertRaises(ValidationError) as caught:
+            self.evaluate("delete all my macros", drop=self.NAMES)
+        message = str(caught.exception)
+        self.assertIn("remove or change 4 of your macros", message)
+        self.assertIn("M1, M2, M3, M4", message)
+        self.assertIn("CONFIRM", message)
+        self.assertIn("Nothing was changed", message)
+
+    def test_the_word_confirm_lets_it_through_in_any_case_but_only_as_a_word(self):
+        for text in ("confirm: delete all my macros", "Delete them all. CONFIRM", "Confirm."):
+            with self.subTest(text=text):
+                self.evaluate(text, drop=self.NAMES)
+        for text in ("unconfirmed", "reconfirm", "confirmed", "con firm", ""):
+            with self.subTest(text=text), self.assertRaises(ValidationError):
+                self.evaluate(text, drop=self.NAMES)
+
+    def test_editing_several_macros_counts_too_but_adding_never_does(self):
+        with self.assertRaises(ValidationError):
+            self.evaluate("add #showtooltip to all", edit=["M1", "M2", "M3"])
+        extra = [{"name": f"N{i}", "icon": 134400, "body": "/cast Fear"} for i in range(8)]
+        self.evaluate("make eight macros", add=extra)
+
+    def test_a_smaller_change_needs_no_confirmation(self):
+        self.evaluate("remove two", drop=["M1", "M2"])
+        self.evaluate("edit two", edit=["M1", "M2"])
+        self.evaluate("one of each", drop=["M1"], edit=["M2"])
+
+    def test_the_threshold_is_a_setting(self):
+        strict = dataclasses.replace(self.settings, confirm_changes_at=2)
+        with self.assertRaises(ValidationError):
+            self.evaluate("remove two", settings=strict, drop=["M1", "M2"])
+        relaxed = dataclasses.replace(self.settings, confirm_changes_at=10)
+        self.evaluate("delete all", settings=relaxed, drop=self.NAMES)
+
+    def test_a_reply_that_rejects_a_bulk_change_leaves_everything_alone(self):
+        def wipe(workspace):
+            (workspace / "macros.json").write_text(self.candidate(drop=self.NAMES), encoding="utf-8")
+
+        before = self.spec_text()
+        reply = self.handle(request(text="delete all my macros"), runner=fake_process(wipe))
+        self.assertRejected(reply, "CONFIRM", "M1")
+        self.assertEqual(self.spec_text(), before)
+
+    def test_with_confirm_the_bulk_change_goes_through(self):
+        def wipe(workspace):
+            (workspace / "macros.json").write_text(self.candidate(drop=self.NAMES), encoding="utf-8")
+
+        reply = self.handle(request(rid=101, text="confirm: delete all my macros"),
+                            runner=fake_process(wipe))
+        self.assertIn("Removed: M1, M2, M3, M4", reply)
+        self.assertEqual(json.loads(self.spec_text())["macros"], [])
+
+    def test_the_setting_is_validated(self):
+        self.assertEqual(self.settings.confirm_changes_at, 3)
+        for bad in (0, 101, "3", True, 2.5):
+            sb = Sandbox(config={"confirm_changes_at": bad})
+            self.addCleanup(sb.cleanup)
+            with self.subTest(bad=bad), self.assertRaises(ConfigError):
+                Settings.load(sb.project)
+
+
+class IconFallbackTests(WatcherCase):
+    """An icon the AI invented does not throw the whole answer away."""
+
+    BAD = {**NEW_MACRO, "icon": "icon:no_such_icon_name"}
+
+    def candidate(self, macro):
+        spec = json.loads(self.spec_text())
+        spec["macros"].append(macro)
+        return json.dumps(spec)
+
+    def test_a_missing_icon_is_replaced_by_the_default_and_counted_as_a_warning(self):
+        candidate, warnings, summary = watcher._evaluate(
+            self.settings, self.candidate(self.BAD), "macro", "add one")
+        added = [m for m in candidate["macros"] if m["name"] == NEW_MACRO["name"]][0]
+        self.assertIsNone(added["icon"])
+        self.assertGreaterEqual(warnings, 1)
+        self.assertIn(NEW_MACRO["name"], summary)
+
+    def test_a_missing_spell_icon_too(self):
+        candidate, _warnings, _summary = watcher._evaluate(
+            self.settings, self.candidate({**NEW_MACRO, "icon": "spell:No Such Spell"}), "macro")
+        self.assertIsNone([m for m in candidate["macros"] if m["name"] == NEW_MACRO["name"]][0]["icon"])
+
+    def test_end_to_end_the_macro_is_added_with_the_question_mark_icon(self):
+        reply = self.handle(request(rid=102), runner=fake_process(add_macro(self.BAD)))
+        self.assertIn(f"Added: {NEW_MACRO['name']}", reply)
+        self.assertNotIn("Rejected", reply)
+        saved = [m for m in json.loads(self.spec_text())["macros"] if m["name"] == NEW_MACRO["name"]]
+        self.assertIsNone(saved[0]["icon"])
+        data = (self.settings.addons / "MacroForge" / "MacroForgeData.lua").read_text(encoding="utf-8")
+        self.assertIn(f'name = "{NEW_MACRO["name"]}", icon = 134400', data)
+
+    def test_a_good_icon_is_left_alone(self):
+        candidate, _warnings, _summary = watcher._evaluate(
+            self.settings, self.candidate(NEW_MACRO), "macro")
+        self.assertEqual([m for m in candidate["macros"] if m["name"] == NEW_MACRO["name"]][0]["icon"],
+                         NEW_MACRO["icon"])
+
+    def test_your_own_macros_file_is_still_checked_strictly(self):
+        spec = json.loads(self.candidate(self.BAD))
+        with self.assertRaises(ValidationError):
+            resolve_spec(spec, self.settings)
+        notes: list[str] = []
+        resolve_spec(spec, self.settings, icon_notes=notes)
+        self.assertEqual(len(notes), 1)
+        self.assertIn(NEW_MACRO["name"], notes[0])
 
 
 class WatchStateTests(unittest.TestCase):

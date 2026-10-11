@@ -96,6 +96,7 @@ class QuestionPromptTests(WatcherCase):
                 self.assertIn("Questions are welcome", text)
                 self.assertIn("I'm not sure", text)
                 self.assertIn("only help with macros and scripts", text)
+                self.assertIn("broad topic", text)
 
     def test_the_in_game_status_for_an_unchanged_reply_matches_what_the_pc_writes(self):
         from mforge.spec import describe_changes

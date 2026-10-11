@@ -349,6 +349,12 @@ class ChatSetupTests(SetupCase):
         self.assertEqual((self.saved, self.secrets), ({}, [self.KEY]))  # no key asked for or saved
         self.assertIn("http://localhost:11434/v1", self.text())  # the Ollama address was offered
         self.assertNotIn("Authorization", self.server.requests[0]["headers"])
+        self.assertIn("smaller local models make more mistakes", self.text())
+
+    def test_an_online_service_gets_no_local_model_warning(self):
+        self.server.reply("ok")
+        self.run_menu(["y", "2", self.server.url, "gpt-test", "1"])
+        self.assertNotIn("smaller local models", self.text())
 
     def test_a_bad_address_is_asked_again(self):
         self.server.reply("ok")

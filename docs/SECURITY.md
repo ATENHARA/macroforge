@@ -58,6 +58,12 @@ There is a single-instance lock, a persisted hourly rate limit and an audit log 
 file outside the workspace and edit another one. The CLI refused ("outside ... `--restricted` confines the
 file tools") and the files were untouched.
 
+### Bulk changes
+A request that would remove or edit `confirm_changes_at` (default 3) or more macros at once is refused unless
+the player's own request contains the word CONFIRM. The text comes from the player, not the model, so the model
+cannot confirm for them. `rollback` restores `macros.json`, but cannot bring back macros already deleted in
+game.
+
 ### Ideas and history in the window
 The macro ideas and script examples are fixed text shipped with MacroForge, not AI output. They are checked at build
 time with the same rules as AI macros (and scripts with the script checker); an entry that fails is left out. **Add**

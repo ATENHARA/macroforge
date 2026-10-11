@@ -36,12 +36,15 @@ def _scope(entry: dict) -> str:
     return scope
 
 
-def resolve_spec(spec: dict, settings: Settings, blocked: frozenset[str] | None = None) -> dict:
+def resolve_spec(spec: dict, settings: Settings, blocked: frozenset[str] | None = None,
+                 icon_notes: list[str] | None = None) -> dict:
     """Validate a parsed spec and resolve icons.
 
     Returns ``{"account": [...], "chars": {name: [...]}, "remove": {"account": [...],
     "chars": {name: [...]}}}`` where every macro is ``{"name", "icon", "body"}``. ``blocked`` lists
-    slash commands that must not appear (used for agent-written specs).
+    slash commands that must not appear (used for agent-written specs). With ``icon_notes`` (a
+    list), an icon that cannot be found does not fail the spec: the entry in ``spec`` gets the
+    default question-mark icon instead and a note is appended (AI answers invent icon names).
     """
     icons, spells = load_icons(settings.data), load_spells(settings.data)
     known = None  # the game's function list, loaded only if a script needs it
@@ -72,7 +75,15 @@ def resolve_spec(spec: dict, settings: Settings, blocked: frozenset[str] | None 
             raise ValidationError(f"{name!r}: duplicate macro name for {scope}")
         seen.add((scope, name))
         created.add(("account" if scope == "account" else norm(scope), name))
-        macro = {"name": name, "icon": resolve_icon(entry.get("icon"), icons, spells), "body": body}
+        try:
+            icon = resolve_icon(entry.get("icon"), icons, spells)
+        except ValidationError as exc:
+            if icon_notes is None:
+                raise
+            entry["icon"] = None  # the default icon (with #showtooltip the game shows the spell's)
+            icon = resolve_icon(None, icons, spells)
+            icon_notes.append(f"{name!r}: {exc}")
+        macro = {"name": name, "icon": icon, "body": body}
         if kind == "script":
             macro["script"] = True
         (out["account"] if scope == "account" else out["chars"].setdefault(scope, [])).append(macro)

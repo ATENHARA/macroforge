@@ -26,6 +26,11 @@ from .watcher import load_replies
 SLOT_COUNT = 120
 STEPS = 4  # find the game, game data, install the addon, in-game requests
 LOCAL_LLM_URL = "http://localhost:11434/v1"  # Ollama; LM Studio uses port 1234
+LOCAL_MODEL_WARNING = (
+    "Note: smaller local models make more mistakes than Claude or GPT. They may misread a\n"
+    "request, ignore the rules, ramble off topic or write macros that the checks then reject.\n"
+    "Nothing wrong is installed (every answer is checked first), but expect more 'Rejected'\n"
+    "replies. An instruct model of about 7-8B is the minimum; larger models do better.\n")
 
 
 @dataclass(frozen=True)
@@ -346,7 +351,8 @@ class Wizard:
                 ["Claude (Anthropic): needs a Claude account and the free Claude Code program",
                  "ChatGPT / OpenAI or another online service: needs an API key from that service,\n"
                  "     which bills you (usually a few cents per request)",
-                 "An AI running on this PC (Ollama or LM Studio): free; nothing leaves this PC"])]
+                 "An AI running on this PC (Ollama or LM Studio): free; nothing leaves this PC,\n"
+                 "     but smaller models make noticeably more mistakes"])]
         if backend == "claude":
             if not self.setup_claude(settings):
                 return
@@ -387,6 +393,8 @@ class Wizard:
                       "usually http://localhost:1234/v1." if local else
                       "Address of the AI service's API. The default is OpenAI's; for another\n"
                       "service use the address in its documentation (https://...)."))
+        if local:
+            self.out(LOCAL_MODEL_WARNING)
         url = url or self.ask_valid_url(LOCAL_LLM_URL if local else DEFAULT_LLM_URL)
         validate_llm_url(url)
         if not model:

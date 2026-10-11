@@ -287,9 +287,13 @@ def run_agent(settings: Settings, req: Request, export: dict | None,
 
 
 def extract_reply(text: str) -> str:
-    """The part of the agent's answer after ``REPLY:`` (or its last 300 characters)."""
+    """The part of the agent's answer after ``REPLY:`` (or its last 300 characters).
+
+    A second ``REPLY:`` inside the answer (models sometimes repeat the marker) is dropped.
+    """
     match = re.search(r"REPLY:\s*(.*)", text, re.S)
-    return (match.group(1) if match else text[-300:]).strip()
+    answer = match.group(1) if match else text[-300:]
+    return re.sub(r"\s*REPLY:\s*", " ", answer).strip()
 
 
 def login(settings: Settings) -> int:

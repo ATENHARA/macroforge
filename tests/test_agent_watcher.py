@@ -199,7 +199,6 @@ class RejectionTests(WatcherCase):
                  "list": write_raw("[1,2]"), "too long": add_macro({**NEW_MACRO, "body": "/cast " + "x" * 300}),
                  "pipe": add_macro({**NEW_MACRO, "body": "/say |cffff0000x|r"}),
                  "control": add_macro({**NEW_MACRO, "body": "/say \x07"}),
-                 "bad icon": add_macro({**NEW_MACRO, "icon": "spell:No Such"}),
                  "dup name": add_macro(DEFAULT_MACROS["macros"][0])}
         for label, edit in cases.items():
             before = self.spec_text()
@@ -475,6 +474,9 @@ class AgentUnitTests(WatcherCase):
         self.assertEqual(agent.extract_reply("thinking...\nREPLY: Added X"), "Added X")
         self.assertEqual(agent.extract_reply("no marker here"), "no marker here")
         self.assertEqual(len(agent.extract_reply("y" * 1000)), 300)
+        self.assertEqual(agent.extract_reply("REPLY: Nothing changed. REPLY: Ask for a macro."),
+                         "Nothing changed. Ask for a macro.")
+        self.assertEqual(agent.extract_reply("note\nREPLY: one\nREPLY: two"), "one two")
 
 
 if __name__ == "__main__":

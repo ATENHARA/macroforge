@@ -146,6 +146,11 @@ addons, which do not mention scripts directly; they are not an approval by Blizz
 so. Other topics (builds, quests, general knowledge) are politely declined, because the AI only has the macro
 reference to go on and would otherwise guess.
 
+**Bulk changes need CONFIRM:** if one request would remove or edit 3 or more of your macros (`confirm_changes_at`),
+nothing is changed and the reply tells you which ones; ask again with the word CONFIRM in the request to go
+ahead ("confirm: delete all my macros"). Adding macros never needs it. If the AI names an icon that does not
+exist, the macro is still added with the default icon (with `#showtooltip` the game shows the spell's).
+
 **Using GPT or a local model instead of Claude:** choose it in `setup.cmd` (or run
 `python macroforge.py setup --backend openai` or `--backend local`), or set it in `config.json`:
 ```json
@@ -155,9 +160,11 @@ Any service with an OpenAI-style chat endpoint works: OpenAI, OpenRouter, Ollama
 (`http://localhost:11434/v1`), LM Studio (`http://localhost:1234/v1`) and others. Setup lets you keep your API
 key in Windows Credential Manager (recommended: Windows' encrypted vault for saved passwords) or in an
 environment variable you set yourself (`MACROFORGE_API_KEY`, takes priority); it is never in `config.json`.
-Test the connection with `python macroforge.py llm-test`. Small local models make more mistakes: use an
-instruct model of about 7-8B or larger with a context of at least 8192 tokens (Ollama:
-`OLLAMA_CONTEXT_LENGTH=8192`). The rules file the AI reads can be swapped with `agent_context_file`.
+Test the connection with `python macroforge.py llm-test`. **Smaller local models make noticeably more
+mistakes** than Claude or GPT: they may misread a request, ignore the rules, ramble off topic or write macros
+the checks reject. Nothing wrong is installed (every answer is checked first), but expect more "Rejected"
+replies. Use an instruct model of about 7-8B or larger with a context of at least 8192 tokens
+(Ollama: `OLLAMA_CONTEXT_LENGTH=8192`). The rules file the AI reads can be swapped with `agent_context_file`.
 Requests then go to that provider (or stay on your PC for a local model); there is no cost cap, only the
 hourly request limit.
 
@@ -183,6 +190,7 @@ with its cost. Details: [docs/SECURITY.md](docs/SECURITY.md).
 | `agent_timeout_seconds` | 300 | time limit per request |
 | `delete_request_shots` | true | delete the request screenshots (and the JPEG written just after) once handled |
 | `max_requests_per_hour` | 10 | hourly cap (kept across restarts) |
+| `confirm_changes_at` | 3 | a request that removes or edits this many macros at once is refused unless it contains the word CONFIRM (1-100) |
 | `max_request_chars` | 500 | longest accepted request text |
 | `blocked_commands` | script, run, dump, console, tinspect, click, logout, guild admin, ... (see `mforge/resources/defaults.toml`) | slash commands the agent may never write |
 | `fetch_allowed_hosts` | wago.tools, api.github.com, github.com, githubusercontent.com | hosts `fetch` may contact |

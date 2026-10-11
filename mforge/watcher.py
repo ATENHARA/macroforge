@@ -182,12 +182,20 @@ def remember_class(settings: Settings, req: Request) -> None:
         atomic_write_text(settings.spec, json.dumps(spec, indent=2) + "\n")
 
 
-def _evaluate(settings: Settings, candidate_text: str,
-              mode: str = "macro") -> tuple[dict, int, str]:
+def _confirmed(text: str) -> bool:
+    """Did the player write the word CONFIRM in the request (any case, as a word of its own)?"""
+    return re.search(r"\bconfirm\b", text, re.I) is not None
+
+
+def _evaluate(settings: Settings, candidate_text: str, mode: str = "macro",
+              text: str = "") -> tuple[dict, int, str]:
     """Validate the agent's macros.json against the current one.
 
-    Returns the parsed spec, the number of soft warnings (unknown spell names) and a one-line
-    description of what changed that is computed here, not taken from the model's reply.
+    Returns the parsed spec, the number of soft warnings (unknown spell names, unusable icons) and a
+    one-line description of what changed that is computed here, not taken from the model's reply.
+    ``text`` is the player's request: removing or editing ``confirm_changes_at`` or more macros at
+    once needs the word CONFIRM in it, so one loose sentence cannot wipe out a macro collection.
+    The spec comes back with any unusable icon replaced by the default one.
     """
     try:
         candidate = json.loads(candidate_text)
@@ -205,7 +213,8 @@ def _evaluate(settings: Settings, candidate_text: str,
         if mode != "script" and is_script:
             raise ValidationError("scripts can only be made with /mf script")
     changed = changed_macros(current, candidate)
-    resolve_spec(candidate, settings)  # everything must be valid; the agent rules follow
+    icon_notes: list[str] = []
+    resolve_spec(candidate, settings, icon_notes=icon_notes)  # everything must be valid
     for entry in changed:  # the agent-only rules apply to what it changed, not to your own macros
         if entry.get("kind") != "script":
             name, body = clean_macro(entry.get("name"), entry.get("body"))
@@ -216,7 +225,14 @@ def _evaluate(settings: Settings, candidate_text: str,
     hard = [f"[{name}] {f.text}" for name, f in findings if f.kind != "spell"]
     if hard:
         raise ValidationError("; ".join(hard)[:250])
-    return candidate, len(findings), describe_changes(diff_specs(current, candidate))
+    changes = diff_specs(current, candidate)
+    touched = sorted(set(changes["removals"]) | set(changes["edited"]))
+    if len(touched) >= settings.confirm_changes_at and not _confirmed(text):
+        raise ValidationError(
+            f"That would remove or change {len(touched)} of your macros "
+            f"({', '.join(touched)[:100]}). Nothing was changed. If you really want that, ask "
+            "again and include the word CONFIRM.")
+    return candidate, len(findings) + len(icon_notes), describe_changes(changes)
 
 
 ACK_TEXT = "Got your request, working on it..."
@@ -258,7 +274,8 @@ def default_runner(settings: Settings) -> Callable:
         def run(settings: Settings, req: Request, export: dict | None):
             """Ask the chat model; its answer is checked for the kind of request it answers."""
             return llm.run_chat(settings, req, export,
-                                check=lambda text: _evaluate(settings, text, req.mode))
+                                check=lambda answer: _evaluate(settings, answer, req.mode,
+                                                                   req.text))
         return run
     return agent_mod.run_agent
 
@@ -295,9 +312,12 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
             result = (runner or default_runner(settings))(settings, req, export)
             usage = result.usage
             reply = agent_mod.extract_reply(result.text)
-            candidate, warnings, summary = _evaluate(settings, result.spec_text, req.mode)
+            candidate, warnings, summary = _evaluate(settings, result.spec_text, req.mode,
+                                                     req.text)
             if candidate != read_spec(settings.spec):
-                atomic_write_text(settings.spec, result.spec_text)
+                unchanged = candidate == json.loads(result.spec_text)  # no icon was replaced
+                atomic_write_text(settings.spec, result.spec_text if unchanged
+                                  else json.dumps(candidate, indent=2))
                 changed = True
             reply = f"[{summary}] {reply}"
             if warnings:
