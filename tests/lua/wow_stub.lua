@@ -105,7 +105,7 @@ function M.new_world(opts)
         if opts.identity_only_unitname then return first end
         return surname ~= "" and (first .. " " .. surname) or first
     end
-    env.UnitClass = function() return "Warlock", "WARLOCK" end
+    env.UnitClass = function() return opts.class_name or "Warlock", opts.class or "WARLOCK" end
     env.UnitLevel = function() return opts.level or 30 end
     env.UnitExists = function(unit) return unit == "pet" and opts.pet ~= nil end
     env.UnitCreatureFamily = function() return opts.pet and opts.pet.family or nil end

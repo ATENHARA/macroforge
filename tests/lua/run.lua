@@ -1065,6 +1065,518 @@ test("the probe copes with a client that has no issecurevariable", function()
     eq(#w.env.MacroForgeProbe.script.names, 0)  -- unknown whose names these are: record none
 end)
 
+-- ideas and history ---------------------------------------------------------------------------------------
+
+local IDEAS = {
+    macros = {
+        WARLOCK = {
+            { name = "Mouseover Fear", icon = 136183, level = 8, why = "Fears the unit under your mouse.",
+              body = "#showtooltip\n/cast [@mouseover,harm,nodead][] Fear" },
+            { name = "Curse Picker", icon = 136126, level = 20, why = "One button for curses.",
+              body = "#showtooltip\n/cast [mod:shift] Curse of Weakness; Curse of the Elements" },
+        },
+        MAGE = { { name = "Mouseover Poly", icon = 136100, level = 8, why = "Polymorph the unit under your mouse.",
+                   body = "#showtooltip\n/cast [@mouseover,harm,nodead][] Polymorph" } },
+    },
+    scripts = {
+        { name = "Coords", icon = 134269, level = 0, why = "Prints where you are.", script = true,
+          body = '/run print(GetZoneText())' },
+    },
+}
+
+local function ideas_world(opts, suggestions)
+    local w = world(opts or {}, data())
+    if suggestions ~= false then w.env.MacroForgeSuggestions = suggestions or copy(IDEAS) end
+    w.fire("PLAYER_LOGIN")
+    w.chat = {}
+    return w
+end
+
+local function idea_names(list)
+    local out = {}
+    for _, e in ipairs(list) do out[#out + 1] = e.name end
+    return table.concat(out, ",")
+end
+
+test("macro ideas are the ones for this character's class", function()
+    local w = ideas_world()
+    eq(idea_names(w.env.MacroForgeCore.ideas("macro")), "Mouseover Fear,Curse Picker")
+    local mage = ideas_world({ class = "MAGE", class_name = "Mage" })
+    eq(idea_names(mage.env.MacroForgeCore.ideas("macro")), "Mouseover Poly")
+    local other = ideas_world({ class = "ROGUE", class_name = "Rogue" })
+    eq(#other.env.MacroForgeCore.ideas("macro"), 0)
+end)
+
+test("script examples are the same for every class", function()
+    for _, class in ipairs({ "WARLOCK", "ROGUE" }) do
+        local w = ideas_world({ class = class })
+        eq(idea_names(w.env.MacroForgeCore.ideas("script")), "Coords")
+    end
+end)
+
+test("missing or damaged idea data gives an empty list, never an error", function()
+    for _, bad in ipairs({ false, "text", 5, {}, { macros = "x", scripts = 3 },
+                           { macros = { WARLOCK = "x" } }, { macros = { WARLOCK = { 1, "a", {} } } } }) do
+        local w = ideas_world({}, bad)
+        eq(#w.env.MacroForgeCore.ideas("macro"), 0)
+        eq(#w.env.MacroForgeCore.ideas("script"), 0)
+    end
+end)
+
+test("damaged entries are skipped and the good ones kept", function()
+    local d = copy(IDEAS)
+    table.insert(d.macros.WARLOCK, 2, { name = "No body", icon = 1, why = "x" })
+    table.insert(d.macros.WARLOCK, { name = "No why", icon = 1, body = "/cast Fear" })
+    table.insert(d.macros.WARLOCK, { name = "Bad level", icon = 1, why = "x", body = "/cast Fear", level = "8" })
+    table.insert(d.macros.WARLOCK, { name = "Long", icon = 1, why = "x", body = string.rep("x", 256) })
+    local w = ideas_world({}, d)
+    eq(idea_names(w.env.MacroForgeCore.ideas("macro")), "Mouseover Fear,Curse Picker")
+end)
+
+test("Add creates the macro on this character with the idea's icon and text", function()
+    local w = ideas_world()
+    local idea = w.env.MacroForgeCore.ideas("macro")[1]
+    eq(w.env.MacroForgeCore.ideaAdded(idea), false)
+    eq(w.env.MacroForgeCore.addIdea(idea), true)
+    eq(names(w.char), "Fear MO,Mouseover Fear")
+    eq(w.char[2].icon, 136183)
+    eq(w.char[2].body:gsub("%s+$", ""), idea.body)  -- the game stores a trailing newline
+    eq(names(w.account), "Tap")
+    truthy(chat_has(w, "Added 'Mouseover Fear' for this character"), chat_dump(w))
+    eq(w.env.MacroForgeCore.ideaAdded(idea), true)
+end)
+
+test("adding the same idea twice does not duplicate or change anything", function()
+    local w = ideas_world()
+    local idea = w.env.MacroForgeCore.ideas("macro")[1]
+    w.env.MacroForgeCore.addIdea(idea)
+    w.chat = {}
+    eq(w.env.MacroForgeCore.addIdea(idea), false)
+    eq(names(w.char), "Fear MO,Mouseover Fear")
+    truthy(chat_has(w, "you already have a macro named 'Mouseover Fear'"), chat_dump(w))
+end)
+
+test("a macro of the player's own with the same name is never overwritten", function()
+    local w = ideas_world()
+    w.add_macro("Mouseover Fear", 5, "/cast Shadow Bolt", true)
+    local idea = w.env.MacroForgeCore.ideas("macro")[1]
+    eq(w.env.MacroForgeCore.addIdea(idea), false)
+    eq(w.char[2].body:gsub("%s+$", ""), "/cast Shadow Bolt")
+    eq(w.char[2].icon, 5)
+end)
+
+test("a same-named macro in the other scope does not block Add", function()
+    local w = ideas_world()
+    w.add_macro("Mouseover Fear", 5, "/cast X", false)  -- account-wide
+    local idea = w.env.MacroForgeCore.ideas("macro")[1]
+    eq(w.env.MacroForgeCore.ideaAdded(idea), false)
+    eq(w.env.MacroForgeCore.addIdea(idea), true)
+end)
+
+test("a script example is added account-wide and the Blizzard notice appears once", function()
+    local w = ideas_world()
+    local idea = w.env.MacroForgeCore.ideas("script")[1]
+    eq(w.env.MacroForgeCore.addIdea(idea), true)
+    eq(names(w.account), "Tap,Coords")
+    eq(w.account[2].body:gsub("%s+$", ""), "/run print(GetZoneText())")
+    truthy(chat_has(w, "Added 'Coords' for all your characters"), chat_dump(w))
+    truthy(chat_has(w, "Blizzard shows a warning"), chat_dump(w))
+    local d = copy(IDEAS)
+    d.scripts[2] = { name = "Second", icon = 1, why = "x", script = true, body = "/run print(2)" }
+    w.env.MacroForgeSuggestions = d
+    w.chat = {}
+    eq(w.env.MacroForgeCore.addIdea(w.env.MacroForgeCore.ideas("script")[2]), true)
+    truthy(not chat_has(w, "Blizzard shows a warning"), "the notice must not repeat")
+end)
+
+test("a script idea with a syntax error or without /run is refused", function()
+    for _, body in ipairs({ "/run print(", "/cast Fear", "print(1)" }) do
+        local d = copy(IDEAS)
+        d.scripts[1].body = body
+        local w = ideas_world({}, d)
+        eq(w.env.MacroForgeCore.addIdea(w.env.MacroForgeCore.ideas("script")[1]), false)
+        eq(#w.account, 1)
+        truthy(chat_has(w, "was not installed"), body .. " / " .. chat_dump(w))
+    end
+end)
+
+test("Add is refused in combat, and a client error does not escape", function()
+    local w = ideas_world({ combat = true })
+    eq(w.env.MacroForgeCore.addIdea(w.env.MacroForgeCore.ideas("macro")[1]), false)
+    truthy(chat_has(w, "in combat"), chat_dump(w))
+    eq(#w.char, 0)  -- nothing was applied at login either (in combat)
+    local blocked = ideas_world({ create_fails = true })
+    local ok, result = pcall(blocked.env.MacroForgeCore.addIdea, blocked.env.MacroForgeCore.ideas("macro")[1])
+    truthy(ok, tostring(result))
+    eq(result, false)
+    truthy(chat_has(blocked, "could not create"), chat_dump(blocked))
+end)
+
+test("Add refuses a damaged idea", function()
+    local w = ideas_world()
+    for _, bad in ipairs({ {}, { name = "x" }, { name = "x", icon = 1, body = "y" }, "text" }) do
+        eq(w.env.MacroForgeCore.addIdea(bad), false)
+    end
+    eq(#w.char, 1)
+    truthy(chat_has(w, "damaged"), chat_dump(w))
+end)
+
+test("a full macro list is reported, not crashed on", function()
+    local w = ideas_world({ char_max = 1 })
+    eq(w.env.MacroForgeCore.addIdea(w.env.MacroForgeCore.ideas("macro")[1]), false)
+    eq(#w.char, 1)
+end)
+
+test("sending a request records it in the history, newest first", function()
+    local w = ui_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask first request")
+    w.env.SlashCmdList.MACROFORGE("script second request")
+    local history = w.env.MacroForgeCore.history()
+    eq(#history, 2)
+    eq(history[1].text, "second request")
+    eq(history[1].mode, "script")
+    eq(history[2].text, "first request")
+    eq(history[2].mode, "macro")
+    eq(history[2].char, "Testy Mage")
+    eq(history[2].reply, nil)
+    truthy(history[1].time > 0)
+end)
+
+test("a reply is stored with the request it answers", function()
+    local w = ui_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask make a fear macro")
+    local id = w.env.MacroForgeRequests[1].id
+    w.env.MacroForge_ShowReplies({ replies = { { id = 9, req = id + 7, text = "for another request" },
+                                               { id = 10, req = id, text = "Done: Fear MO added." } } })
+    local entry = w.env.MacroForgeCore.history()[1]
+    eq(entry.reply, "Done: Fear MO added.")
+    local pending = ui_world()
+    spy_strip(pending)
+    pending.env.SlashCmdList.MACROFORGE("ask x")
+    pending.env.MacroForge_ShowReplies({ replies = { { id = 1, req = pending.env.MacroForgeRequests[1].id,
+                                                       text = "working", pending = true } } })
+    eq(pending.env.MacroForgeCore.history()[1].reply, nil)
+end)
+
+test("a reply goes to the request it answers and to no other", function()
+    local w = ui_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask first")
+    w.env.SlashCmdList.MACROFORGE("ask second")
+    local first = w.env.MacroForgeRequests[1].id
+    w.env.MacroForge_ShowReplies({ replies = { { id = 6, req = first, text = "answer to the first" } } })
+    local history = w.env.MacroForgeCore.history()
+    eq(history[1].text, "second")
+    eq(history[1].reply, nil)
+    eq(history[2].text, "first")
+    eq(history[2].reply, "answer to the first")
+end)
+
+test("a long reply is cut and a repeated reply changes nothing", function()
+    local w = ui_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask x")
+    local id = w.env.MacroForgeRequests[1].id
+    local calls = 0
+    w.env.MacroForgeCore.onHistory = function() calls = calls + 1 end
+    local data = { replies = { { id = 3, req = id, text = string.rep("r", 5000) } } }
+    w.env.MacroForge_ShowReplies(data)
+    eq(#w.env.MacroForgeCore.history()[1].reply, 600)
+    eq(calls, 1)
+    w.env.MacroForge_ShowReplies(data)
+    eq(calls, 1)
+end)
+
+test("the history keeps the newest 30 requests", function()
+    local w = ui_world()
+    spy_strip(w)
+    for i = 1, 35 do w.env.SlashCmdList.MACROFORGE("ask request " .. i) end
+    local history = w.env.MacroForgeCore.history()
+    eq(#history, 30)
+    eq(history[1].text, "request 35")
+    eq(history[30].text, "request 6")
+end)
+
+test("the history callback fires when a request is recorded", function()
+    local w = ui_world()
+    spy_strip(w)
+    local calls = 0
+    w.env.MacroForgeCore.onHistory = function() calls = calls + 1 end
+    w.env.SlashCmdList.MACROFORGE("ask hello")
+    eq(calls, 1)
+    w.env.MacroForgeCore.onHistory = function() error("a broken listener") end
+    w.env.SlashCmdList.MACROFORGE("ask again")  -- must not break sending
+    eq(#w.env.MacroForgeCore.history(), 2)
+end)
+
+test("damaged saved history is skipped and a missing one is created", function()
+    local w = world({}, data())
+    w.env.MacroForgeHistory = { "x", 5, {}, { id = "a", text = "b" }, { id = 1, text = 7 },
+                                { id = 2, text = "ok", time = "later", mode = "weird", char = 5, reply = 9 },
+                                { id = 3, text = "kept", time = 50, mode = "script", char = "A", reply = "R" } }
+    w.fire("PLAYER_LOGIN")
+    local history = w.env.MacroForgeCore.history()
+    eq(#history, 2)
+    eq(history[1].text, "kept")
+    eq(history[1].reply, "R")
+    eq(history[2].time, 0)
+    eq(history[2].mode, "macro")
+    eq(history[2].char, "")
+    eq(history[2].reply, nil)
+    local fresh = world({}, data())
+    fresh.env.MacroForgeHistory = "garbage"
+    fresh.fire("PLAYER_LOGIN")
+    eq(#fresh.env.MacroForgeCore.history(), 0)
+end)
+
+-- the side panel ------------------------------------------------------------------------------------------
+
+local function panel_world(opts)
+    local w = ui_world(opts)
+    w.env.MacroForgeSuggestions = copy(IDEAS)
+    click(w.env.MacroForgeMinimapButton)
+    w.chat = {}
+    return w
+end
+
+local function shown_cards(panel)
+    local out = {}
+    for _, card in ipairs(panel.cards) do if card.shown then out[#out + 1] = card end end
+    return out
+end
+
+local function shown_rows(panel)
+    local out = {}
+    for _, row in ipairs(panel.rows) do if row.shown then out[#out + 1] = row end end
+    return out
+end
+
+test("the window has Ideas and History buttons and no panel until one is clicked", function()
+    local w = panel_world()
+    truthy(w.find("Button", "Macro ideas"), "no ideas button")
+    truthy(w.find("Button", "History"), "no history button")
+    eq(w.env.MacroForgeSidePanel, nil)
+end)
+
+test("the ideas button follows the Macro / Script mode", function()
+    local w = panel_world()
+    click(w.find("Button", "Script"))
+    truthy(w.find("Button", "Script examples"), "the button should now say Script examples")
+    click(w.find("Button", "Macro"))
+    truthy(w.find("Button", "Macro ideas"))
+end)
+
+test("Ideas opens a panel with a card per idea for the class", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    local panel = w.env.MacroForgeSidePanel
+    truthy(panel.shown, "panel should be open")
+    eq(panel.view, "ideas")
+    eq(panel.TitleText:GetText(), "Macro ideas")
+    local cards = shown_cards(panel)
+    eq(#cards, 2)
+    eq(cards[1].name:GetText(), "Mouseover Fear")
+    eq(cards[1].why:GetText(), "Fears the unit under your mouse.")
+    eq(cards[1].body:GetText(), "#showtooltip\n/cast [@mouseover,harm,nodead][] Fear")
+    eq(cards[1].icon.props.Texture[1], 136183)
+    eq(cards[1].note:GetText(), "Needs level 8")
+    eq(cards[1].add:GetText(), "Add")
+    eq(cards[2].name:GetText(), "Curse Picker")
+end)
+
+test("a card marks a level the character has not reached", function()
+    local w = panel_world({ level = 10 })
+    click(w.find("Button", "Macro ideas"))
+    local cards = shown_cards(w.env.MacroForgeSidePanel)
+    eq(cards[1].note:GetText(), "Needs level 8")
+    eq(cards[2].note:GetText(), "Needs level 20")
+    eq(cards[2].note.props.TextColor[2], 0.4)   -- shown in red: not reached yet
+    eq(cards[1].note.props.TextColor[2], 0.6)   -- grey: fine
+end)
+
+test("cards are stacked downwards without overlapping", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    local cards = shown_cards(w.env.MacroForgeSidePanel)
+    local first, second = cards[1].props.Point, cards[2].props.Point
+    eq(first[5], 0)
+    truthy(second[5] < first[5], "the second card must be lower")
+    eq(second[5], -(cards[1].props.Height[1] + 8))
+end)
+
+test("clicking the same button again closes the panel; the other button switches the view", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    click(w.find("Button", "Macro ideas"))
+    truthy(not w.env.MacroForgeSidePanel.shown, "second click should close it")
+    click(w.find("Button", "Macro ideas"))
+    click(w.find("Button", "History"))
+    truthy(w.env.MacroForgeSidePanel.shown)
+    eq(w.env.MacroForgeSidePanel.view, "history")
+    eq(w.env.MacroForgeSidePanel.TitleText:GetText(), "History")
+    click(w.find("Button", "History"))
+    truthy(not w.env.MacroForgeSidePanel.shown)
+end)
+
+test("Add creates the macro, the button turns to Added, and it stays that way when redrawn", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    local panel = w.env.MacroForgeSidePanel
+    click(shown_cards(panel)[1].add)
+    eq(names(w.char), "Fear MO,Mouseover Fear")
+    eq(shown_cards(panel)[1].add:GetText(), "Added")
+    eq(shown_cards(panel)[1].add.props.Disabled, true)
+    eq(shown_cards(panel)[2].add:GetText(), "Add")
+    click(w.find("Button", "History"))
+    click(w.find("Button", "Macro ideas"))
+    eq(shown_cards(panel)[1].add:GetText(), "Added")
+    truthy(chat_has(w, "Added 'Mouseover Fear' for this character"), chat_dump(w))
+    truthy(window_of(w).status:GetText():find("Added 'Mouseover Fear'", 1, true), window_of(w).status:GetText())
+end)
+
+test("switching to Script mode redraws an open panel with script examples", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    click(w.find("Button", "Script"))
+    local panel = w.env.MacroForgeSidePanel
+    truthy(panel.shown)
+    eq(panel.TitleText:GetText(), "Script examples")
+    local cards = shown_cards(panel)
+    eq(#cards, 1)
+    eq(cards[1].name:GetText(), "Coords")
+    eq(cards[1].note:GetText(), "Any character")
+    click(cards[1].add)
+    eq(names(w.account), "Tap,Coords")
+    eq(cards[1].add:GetText(), "Added")
+end)
+
+test("a class with no ideas gets a friendly message, not an empty panel", function()
+    local w = panel_world({ class = "ROGUE" })
+    click(w.find("Button", "Macro ideas"))
+    local panel = w.env.MacroForgeSidePanel
+    eq(#shown_cards(panel), 0)
+    truthy(panel.empty.shown)
+    truthy(panel.empty:GetText():find("no ideas for your class", 1, true))
+end)
+
+test("text in an idea cannot show colors or links", function()
+    local w = panel_world()
+    local d = copy(IDEAS)
+    d.macros.WARLOCK[1].why = "|cffff0000RED|r"
+    w.env.MacroForgeSuggestions = d
+    click(w.find("Button", "Macro ideas"))
+    eq(shown_cards(w.env.MacroForgeSidePanel)[1].why:GetText(), "||cffff0000RED||r")
+end)
+
+test("the panel opens beside the window, on the left when the right has no room", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    eq(w.env.MacroForgeSidePanel.props.Point[1], "TOPLEFT")
+    click(w.find("Button", "Macro ideas"))
+    w.env.UIParent:SetSize(1920, 1080)
+    window_of(w).props.Right = { 1800 }
+    click(w.find("Button", "Macro ideas"))
+    eq(w.env.MacroForgeSidePanel.props.Point[1], "TOPRIGHT")
+    window_of(w).props.Right = { 700 }
+    click(w.find("Button", "Macro ideas"))
+    click(w.find("Button", "Macro ideas"))
+    eq(w.env.MacroForgeSidePanel.props.Point[1], "TOPLEFT")
+end)
+
+test("Esc closes the panel, and closing the window closes it too", function()
+    local w = panel_world()
+    click(w.find("Button", "Macro ideas"))
+    local found = false
+    for _, name in ipairs(w.env.UISpecialFrames) do if name == "MacroForgeSidePanel" then found = true end end
+    truthy(found, "the panel is not registered for Esc")
+    window_of(w):Hide()
+    window_of(w).scripts.OnHide(window_of(w))
+    truthy(not w.env.MacroForgeSidePanel.shown)
+end)
+
+test("History lists the requests, newest first, with their replies", function()
+    local w = panel_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask first request")
+    w.env.SlashCmdList.MACROFORGE("script second request")
+    click(w.find("Button", "History"))
+    local panel = w.env.MacroForgeSidePanel
+    local rows = shown_rows(panel)
+    eq(#rows, 2)
+    eq(rows[1].text:GetText(), "second request")
+    eq(rows[1].head:GetText(), "Script, just now")
+    eq(rows[2].text:GetText(), "first request")
+    eq(rows[2].head:GetText(), "Macro, just now")
+    eq(rows[2].reply:GetText(), "No reply yet.")
+end)
+
+test("an empty history says how to get started", function()
+    local w = panel_world()
+    click(w.find("Button", "History"))
+    local panel = w.env.MacroForgeSidePanel
+    eq(#shown_rows(panel), 0)
+    truthy(panel.empty:GetText():find("No requests yet", 1, true))
+end)
+
+test("a reply that arrives while History is open appears at once", function()
+    local w = panel_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask make a fear macro")
+    click(w.find("Button", "History"))
+    eq(shown_rows(w.env.MacroForgeSidePanel)[1].reply:GetText(), "No reply yet.")
+    local id = w.env.MacroForgeRequests[1].id
+    w.env.MacroForge_ShowReplies({ replies = { { id = 4, req = id, text = "Added Fear MO." } } })
+    eq(shown_rows(w.env.MacroForgeSidePanel)[1].reply:GetText(), "Added Fear MO.")
+end)
+
+test("a long reply is shortened until the row is clicked", function()
+    local w = panel_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask x")
+    local long = string.rep("word ", 60)
+    w.env.MacroForge_ShowReplies({ replies = { { id = 4, req = w.env.MacroForgeRequests[1].id, text = long } } })
+    click(w.find("Button", "History"))
+    local row = shown_rows(w.env.MacroForgeSidePanel)[1]
+    eq(#row.reply:GetText(), 140)
+    truthy(row.reply:GetText():sub(-3) == "...")
+    row.scripts.OnMouseUp(row)
+    eq(row.reply:GetText(), long)
+    row.scripts.OnMouseUp(row)
+    eq(#row.reply:GetText(), 140)
+end)
+
+test("Use again puts the request back in the box and picks its mode", function()
+    local w = panel_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("script print my coordinates")
+    click(w.find("Button", "History"))
+    local row = shown_rows(w.env.MacroForgeSidePanel)[1]
+    click(row.again)
+    eq(window_of(w).mode, "script")
+    eq(window_of(w).edit:GetText(), "print my coordinates")
+    truthy(window_of(w).status:GetText():find("Request loaded", 1, true), window_of(w).status:GetText())
+end)
+
+test("history text cannot show colors or links either", function()
+    local w = panel_world()
+    spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask |cffff0000RED|r")
+    click(w.find("Button", "History"))
+    eq(shown_rows(w.env.MacroForgeSidePanel)[1].text:GetText(), "||cffff0000RED||r")
+end)
+
+test("the window keeps its layout: the new buttons sit above Apply and nothing overlaps", function()
+    local w = panel_world()
+    local ideas, history = w.find("Button", "Macro ideas"), w.find("Button", "History")
+    local apply, advanced = w.find("Button", "Apply new macros"), w.find("Button", "Advanced  >>")
+    eq(ideas.props.Point[5], history.props.Point[5])
+    truthy(apply.props.Point[5] < ideas.props.Point[5] - 24, "Apply must be below the new row")
+    truthy(advanced.props.Point[5] < apply.props.Point[5] - 24)
+    truthy(window_of(w).props.Size[2] >= 412)
+end)
+
 -- run ---------------------------------------------------------------------------------------------------
 
 local failures = 0

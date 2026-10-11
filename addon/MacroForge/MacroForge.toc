@@ -2,9 +2,10 @@
 ## Title: MacroForge
 ## Notes: Creates/updates macros from a generated data file. /mf applies, /mf live applies without reload, /mf ask sends a request to the PC watcher, /mf ui (or the minimap button) opens a window with the same actions, /mf export, /mf probe, /mf petcheck.
 ## Version: 1.4
-## SavedVariables: MacroForgeExport, MacroForgeLog, MacroForgeProbe, MacroForgeRequests, MacroForgeSeen, MacroForgeAnswered, MacroForgeUI
+## SavedVariables: MacroForgeExport, MacroForgeLog, MacroForgeProbe, MacroForgeRequests, MacroForgeSeen, MacroForgeAnswered, MacroForgeUI, MacroForgeHistory
 
 MacroForgeData.lua
+MacroForgeSuggestions.lua
 Codec.lua
 Probe.lua
 MacroForge.lua

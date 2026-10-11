@@ -58,6 +58,13 @@ There is a single-instance lock, a persisted hourly rate limit and an audit log 
 file outside the workspace and edit another one. The CLI refused ("outside ... `--restricted` confines the
 file tools") and the files were untouched.
 
+### Ideas and history in the window
+The macro ideas and script examples are fixed text shipped with MacroForge, not AI output. They are checked at build
+time with the same rules as AI macros (and scripts with the script checker); an entry that fails is left out. **Add**
+never overwrites a macro you already have with that name. The history is kept in your own saved variables
+(`MacroForgeHistory`, newest 30 requests) and never leaves your PC; text shown from it is escaped so it cannot render
+colors or links.
+
 ### Script requests (`/mf script`)
 A script is a macro whose body is `/run <one line of Lua>`. Lua is real code, so scripts get their own
 mode, their own AI instructions (`reference/script-brief.md`) and their own checker (`mforge/luacheck.py`,

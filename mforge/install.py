@@ -5,12 +5,14 @@ import re
 import shutil
 import time
 from pathlib import Path
+from typing import Callable
 
 from .assets import read_text
 from .errors import ValidationError
 from .fsutil import atomic_write_bytes, atomic_write_text, is_link
-from .lua import render_data
+from .lua import render_data, render_suggestions
 from .settings import Settings
+from .suggest import load_suggestions
 
 SLOT_PREFIX = "MacroForge_S"
 MAX_SLOTS = 200  # the addon scans slot names up to this number
@@ -28,8 +30,12 @@ def check_addons_dir(settings: Settings) -> Path:
     return addons
 
 
-def build_addon(settings: Settings, spec: dict, replies: list[dict]) -> int:
-    """Copy the addon sources to ``build/MacroForge`` and generate ``MacroForgeData.lua``.
+def build_addon(settings: Settings, spec: dict, replies: list[dict],
+                report: Callable[[str], None] = print) -> int:
+    """Copy the addon sources to ``build/MacroForge`` and generate the Lua data files.
+
+    ``MacroForgeData.lua`` carries the macros; ``MacroForgeSuggestions.lua`` the checked ideas for
+    the window (a problem with an idea is passed to ``report`` and the idea is left out).
 
     Returns the ``rev`` stamp written into the data (the addon compares it to detect new data).
     """
@@ -40,6 +46,11 @@ def build_addon(settings: Settings, spec: dict, replies: list[dict]) -> int:
             shutil.copy2(source, out / source.name)
     rev = int(time.time())
     atomic_write_text(out / "MacroForgeData.lua", render_data(spec, rev, replies))
+    ideas = load_suggestions(settings)
+    for problem in ideas.problems:
+        report(f"  warn: {problem}")
+    atomic_write_text(out / "MacroForgeSuggestions.lua",
+                      render_suggestions(ideas.macros, ideas.scripts))
     return rev
 
 

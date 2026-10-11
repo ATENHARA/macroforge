@@ -27,6 +27,7 @@ Only the standard library is used (the Lua tests also need LuaJIT, below).
 | `test_script_mode` | request mode end to end: payload, validation, the two-way gate in the watcher, spec entries, replies |
 | `test_script_prompts` | what the AI is told for scripts (both backends), workspace files, context-file setting |
 | `test_script_examples` | every vetted example fits a macro, passes the checker and runs against a fake game under LuaJIT |
+| `test_suggest` | the macro ideas and script examples: every entry validated against the class spell data, the commands and the script checker; rendering into the generated Lua; the shipped file (3 per class) |
 | `test_script_probe` | the game's function list from the probe: loading, report counts, checking against it |
 | `test_lua_addon` | the Lua addon against a fake WoW API, and the Lua 5.1 syntax scan |
 | `test_style` | line length, docstrings, unused imports, no `SystemExit` or import-time I/O in the library |
@@ -87,7 +88,13 @@ this after changing the addon (`addon/MacroForge/*.lua`) and after a client upda
    notice explains Blizzard's warning, the warning appears on the first press (note its exact wording), and
    the macro prints the coordinates. Press each example in `reference/script-examples.md` once; any that
    errors in game must be fixed or removed there.
-7. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
+7. **Ideas and history:** click **Macro ideas**: a panel opens beside the window (on the left if there is no
+   room) with three cards for your class, each with its icon, a short explanation and the macro text. **Add**
+   puts the macro on this character and the button changes to **Added**; press it in game and note that it works
+   (several ideas assume Forever-specific spell and stance behavior). Switch to **Script** and open **Script
+   examples**; add one. **History** shows your last requests and replies; **Use again** fills the request box.
+   Check that the panel text does not overlap and that Esc closes the panel, then the window.
+8. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
    `install`, `/mf live`: the chat shows the text with the pipes visible, no color and no link.
 
 Before sharing a new version, also try a **fresh install** on another PC (the real download and the Windows

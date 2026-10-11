@@ -1,0 +1,257 @@
+# Macro ideas and script examples shown in the in-game window (Ideas button).
+#
+# Every entry is checked when the addon is built (mforge/suggest.py): the spells must exist for the
+# class, the commands and conditionals must be known, the text must fit a macro, and a script must pass
+# the script checker. An entry that fails is left out and reported, never shipped.
+#
+# macro: class (uppercase game token), name (16 characters at most), icon ("spell:Name" shows that
+#        spell's icon), why (one short sentence for the card), body. The "needs level" shown on the
+#        card is worked out from the spells in the body.
+# script: example is the title of an entry in reference/script-examples.md (the body comes from there),
+#         plus name, icon and why.
+
+[[macro]]
+class = "WARLOCK"
+name = "Mouseover Fear"
+icon = "spell:Fear"
+why = "Fears the enemy under your mouse without changing your target. Falls back to your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Fear"""
+
+[[macro]]
+class = "WARLOCK"
+name = "Curse Picker"
+icon = "spell:Curse of the Elements"
+why = "One button for curses: Elements, Shift for Weakness, Ctrl for Recklessness. Hits your mouseover enemy first."
+body = """#showtooltip
+/cast [mod:shift,@mouseover,harm,nodead][mod:shift] Curse of Weakness; [mod:ctrl,@mouseover,harm,nodead][mod:ctrl] Curse of Recklessness; [@mouseover,harm,nodead][] Curse of the Elements"""
+
+[[macro]]
+class = "WARLOCK"
+name = "Demon Summon"
+icon = "spell:Summon Voidwalker"
+why = "Summons your Voidwalker. Hold Shift for the Imp or Ctrl for the Succubus."
+body = """#showtooltip
+/cast [mod:shift] Summon Imp; [mod:ctrl] Summon Succubus; Summon Voidwalker"""
+
+[[macro]]
+class = "DRUID"
+name = "Mouseover Rejuv"
+icon = "spell:Rejuvenation"
+why = "Casts Rejuvenation on the friend under your mouse, else your target, else you."
+body = """#showtooltip
+/cast [@mouseover,help,nodead][] Rejuvenation"""
+
+[[macro]]
+class = "DRUID"
+name = "Mouseover Roots"
+icon = "spell:Entangling Roots"
+why = "Roots the enemy under your mouse without changing your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Entangling Roots"""
+
+[[macro]]
+class = "DRUID"
+name = "Travel"
+icon = "spell:Travel Form"
+why = "One button for getting around: Aquatic Form in water, Cat Form indoors, Travel Form outside."
+body = """#showtooltip
+/cast [swimming] Aquatic Form; [indoors] Cat Form; Travel Form"""
+
+[[macro]]
+class = "HUNTER"
+name = "Pet Care"
+icon = "spell:Mend Pet"
+why = "Revives your pet if it is dead, calls it if it is away, otherwise heals it with Mend Pet."
+body = """#showtooltip
+/cast [@pet,dead] Revive Pet; [nopet] Call Pet; Mend Pet"""
+
+[[macro]]
+class = "HUNTER"
+name = "Mouseover Mark"
+icon = "spell:Hunter's Mark"
+why = "Puts Hunter's Mark on the enemy under your mouse without changing your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Hunter's Mark"""
+
+[[macro]]
+class = "HUNTER"
+name = "Aspect Swap"
+icon = "spell:Aspect of the Hawk"
+why = "Aspect of the Hawk; hold Ctrl for Aspect of the Cheetah when you only need to run."
+body = """#showtooltip
+/cast [mod:ctrl] Aspect of the Cheetah; Aspect of the Hawk"""
+
+[[macro]]
+class = "MAGE"
+name = "Mouseover Poly"
+icon = "spell:Polymorph"
+why = "Polymorphs the enemy under your mouse so you keep your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Polymorph"""
+
+[[macro]]
+class = "MAGE"
+name = "MO Counterspell"
+icon = "spell:Counterspell"
+why = "Interrupts the enemy under your mouse (a caster you are not targeting)."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Counterspell"""
+
+[[macro]]
+class = "MAGE"
+name = "Conjure"
+icon = "spell:Conjure Water"
+why = "Conjures water; hold Shift to conjure food instead."
+body = """#showtooltip
+/cast [mod:shift] Conjure Food; Conjure Water"""
+
+[[macro]]
+class = "PALADIN"
+name = "Mouseover Heal"
+icon = "spell:Holy Light"
+why = "Heals the friend under your mouse with Holy Light, else your target, else you."
+body = """#showtooltip
+/cast [@mouseover,help,nodead][] Holy Light"""
+
+[[macro]]
+class = "PALADIN"
+name = "Blessings"
+icon = "spell:Blessing of Might"
+why = "Blessing of Might. Shift gives Wisdom, Ctrl gives Kings."
+body = """#showtooltip
+/cast [mod:shift] Blessing of Wisdom; [mod:ctrl] Blessing of Kings; Blessing of Might"""
+
+[[macro]]
+class = "PALADIN"
+name = "Mouseover Hammer"
+icon = "spell:Hammer of Justice"
+why = "Stuns the enemy under your mouse without changing your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Hammer of Justice"""
+
+[[macro]]
+class = "PRIEST"
+name = "Mouseover Renew"
+icon = "spell:Renew"
+why = "Renews the friend under your mouse, else your target, else you."
+body = """#showtooltip
+/cast [@mouseover,help,nodead][] Renew"""
+
+[[macro]]
+class = "PRIEST"
+name = "Mouseover Dispel"
+icon = "spell:Dispel Magic"
+why = "Dispels the unit under your mouse, friend or enemy, else your target."
+body = """#showtooltip
+/cast [@mouseover,exists,nodead][] Dispel Magic"""
+
+[[macro]]
+class = "PRIEST"
+name = "Buffs"
+icon = "spell:Power Word: Fortitude"
+why = "Power Word: Fortitude; hold Shift for Inner Fire on yourself."
+body = """#showtooltip
+/cast [mod:shift] Inner Fire; Power Word: Fortitude"""
+
+[[macro]]
+class = "ROGUE"
+name = "Opener"
+icon = "spell:Cheap Shot"
+why = "Cheap Shot while stealthed, otherwise your Sinister Strike. One button for the start of a fight."
+body = """#showtooltip
+/cast [stealth] Cheap Shot; Sinister Strike"""
+
+[[macro]]
+class = "ROGUE"
+name = "Mouseover Kick"
+icon = "spell:Kick"
+why = "Interrupts the enemy under your mouse without changing your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Kick"""
+
+[[macro]]
+class = "ROGUE"
+name = "Finisher"
+icon = "spell:Eviscerate"
+why = "Eviscerate; hold Shift for Slice and Dice."
+body = """#showtooltip
+/cast [mod:shift] Slice and Dice; Eviscerate"""
+
+[[macro]]
+class = "SHAMAN"
+name = "Mouseover Heal"
+icon = "spell:Healing Wave"
+why = "Casts Healing Wave on the friend under your mouse, else your target, else you."
+body = """#showtooltip
+/cast [@mouseover,help,nodead][] Healing Wave"""
+
+[[macro]]
+class = "SHAMAN"
+name = "Mouseover Shock"
+icon = "spell:Earth Shock"
+why = "Interrupts the enemy under your mouse with Earth Shock."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Earth Shock"""
+
+[[macro]]
+class = "SHAMAN"
+name = "Weapon Imbue"
+icon = "spell:Rockbiter Weapon"
+why = "Rockbiter Weapon. Shift gives Frostbrand, Ctrl gives Flametongue."
+body = """#showtooltip
+/cast [mod:shift] Frostbrand Weapon; [mod:ctrl] Flametongue Weapon; Rockbiter Weapon"""
+
+[[macro]]
+class = "WARRIOR"
+name = "Charge"
+icon = "spell:Charge"
+why = "Charge in Battle Stance, Intercept in Berserker Stance, otherwise it switches to Battle Stance."
+body = """#showtooltip
+/cast [stance:1] Charge; [stance:3] Intercept; Battle Stance"""
+
+[[macro]]
+class = "WARRIOR"
+name = "Mouseover Taunt"
+icon = "spell:Taunt"
+why = "Taunts the enemy under your mouse without changing your target."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Taunt"""
+
+[[macro]]
+class = "WARRIOR"
+name = "Mouseover Bash"
+icon = "spell:Shield Bash"
+why = "Interrupts the enemy under your mouse with Shield Bash (needs a shield)."
+body = """#showtooltip
+/cast [@mouseover,harm,nodead][] Shield Bash"""
+
+[[script]]
+example = "Show your coordinates"
+name = "Coords"
+icon = "icon:inv_misc_map_01"
+why = "Prints your zone and map position in chat."
+
+[[script]]
+example = "Latency"
+name = "Latency"
+icon = "icon:spell_nature_timestop"
+why = "Prints your home and world latency."
+
+[[script]]
+example = "Free bag slots"
+name = "Bag Slots"
+icon = "icon:inv_misc_bag_08"
+why = "Adds up the free slots in all your bags with a short loop."
+
+[[script]]
+example = "Average armor durability"
+name = "Durability"
+icon = "icon:inv_helmet_03"
+why = "Averages the durability of your worn armor and prints it as a percentage."
+
+[[script]]
+example = "Magic 8-ball"
+name = "8 Ball"
+icon = "icon:inv_misc_questionmark"
+why = "Picks a random answer from a list, a good model for any pick-from-a-list script."

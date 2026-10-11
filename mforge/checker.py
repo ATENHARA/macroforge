@@ -116,20 +116,41 @@ def check_macro(macro: dict, class_spell_names: set[str] | None, other_spells: s
     return findings
 
 
-def _spell_findings(command: str, args: str, class_spell_names: set[str],
-                    other_spells: set[str]) -> list[Finding]:
-    findings = []
+def cast_spell_names(command: str, args: str) -> list[str]:
+    """The spell names a ``/cast``, ``/castsequence`` or ``/castrandom`` line asks for."""
+    found = []
     for clause in args.split(";"):
         rest = _RESET.sub("", _CLAUSE.match(clause).group(2).strip())
         names = rest.split(",") if command != "cast" else [rest]
         for name in (n.strip().lstrip("!") for n in names):
             name = _RANK.sub("", name).strip()
-            lowered = name.lower()
-            if name and lowered not in class_spell_names and lowered not in other_spells:
-                findings.append(Finding(
-                    "spell", f"'{name}' is not a known spell for this class "
-                             "(could be an item; check spelling)"))
-    return findings
+            if name:
+                found.append(name)
+    return found
+
+
+def spell_names_in(body: str) -> list[str]:
+    """Every spell name the ``/cast`` family lines of a macro body ask for."""
+    found = []
+    for line in body.split("\n"):
+        match = _COMMAND.match(line.strip())
+        if match and match.group(1).lower() in SPELL_COMMANDS:
+            found.extend(cast_spell_names(match.group(1).lower(), match.group(2).strip()))
+    return found
+
+
+def known_spell_names(settings: Settings, class_name: str) -> set[str]:
+    """Lowercase names of the spells a class can learn, plus the always-available ones."""
+    names = {s["name"].lower() for s in class_spells(settings.data, class_name)}
+    return names | _ALWAYS_KNOWN_SPELLS
+
+
+def _spell_findings(command: str, args: str, class_spell_names: set[str],
+                    other_spells: set[str]) -> list[Finding]:
+    return [Finding("spell", f"'{name}' is not a known spell for this class "
+                             "(could be an item; check spelling)")
+            for name in cast_spell_names(command, args)
+            if name.lower() not in class_spell_names and name.lower() not in other_spells]
 
 
 def _class_map(spec: dict) -> tuple[dict[str, str], str | None]:
@@ -160,8 +181,7 @@ def check_spec(settings: Settings, spec: dict,
         scope = macro.get("char", "account")
         cls = classes.get(norm(scope if isinstance(scope, str) else "account"), default_class)
         if cls and cls not in spell_names:
-            spell_names[cls] = {s["name"].lower() for s in class_spells(settings.data, cls)}
-            spell_names[cls] |= _ALWAYS_KNOWN_SPELLS
+            spell_names[cls] = known_spell_names(settings, cls)
         found = check_macro(macro, spell_names.get(cls), other, commands, conditionals, verified)
         results.extend((macro["name"], finding) for finding in found)
     return results, verified

@@ -4,7 +4,7 @@ local core = MacroForgeCore
 
 local ICON = "Interface\\Icons\\INV_Misc_Note_06"
 local FALLBACK_ICON = 134400  -- the question mark, present in every client
-local WIDTH, HEIGHT_COLLAPSED, HEIGHT_EXPANDED = 380, 380, 600
+local WIDTH, HEIGHT_COLLAPSED, HEIGHT_EXPANDED = 380, 412, 632
 local LEFT = 14
 
 -- Saved between sessions (SavedVariables): where the button sits and whether it is hidden.
@@ -14,6 +14,9 @@ local function settings()
 end
 
 -- A child object that a template provides (a title, a checkbox label), or nil if it has none.
+-- Text that came from saved data is shown with '|' doubled so it cannot render colors or links.
+local function plain(text) return (tostring(text):gsub("|", "||")) end
+
 local function part(frame, ...)
     for _, key in ipairs({ ... }) do
         local value = frame[key]
@@ -33,12 +36,13 @@ end
 -- Window ------------------------------------------------------------------------------------------
 
 local window
+local panel, refreshPanel  -- the side panel (built on first use) and the function that redraws it
 local lastStatus = "Ready."
 local MODE = {
-    macro = { heading = "Ask for a macro", idle = "Ready.",
+    macro = { heading = "Ask for a macro", idle = "Ready.", ideas = "Macro ideas",
               desc = "Describe what you want in plain English. Your PC builds it and the macro appears "
                      .. "here automatically, usually within a minute." },
-    script = { heading = "Ask for a script",
+    script = { heading = "Ask for a script", ideas = "Script examples",
                desc = "Describe a short script, such as \"print my coordinates\". Your PC writes it, "
                       .. "checks it and adds it as a macro, usually within a minute." },
 }
@@ -113,6 +117,8 @@ local function setMode(mode)
     end
     MODE.script.idle = core.scriptNote or ""
     if lastStatus == MODE.macro.idle or lastStatus == MODE.script.idle then setStatus(MODE[mode].idle) end
+    if window.ideasButton then window.ideasButton:SetText(MODE[mode].ideas) end
+    if panel and panel:IsShown() and panel.view == "ideas" then refreshPanel() end
 end
 
 local function send()
@@ -156,6 +162,230 @@ local function addAdvanced(parent)
           WIDTH - 2 * LEFT, LEFT, y - 40, 30)
 end
 
+-- Side panel: macro ideas / script examples and the request history. It opens beside the window
+-- only when a button is clicked, and one panel serves both lists.
+local PANEL_WIDTH, PANEL_HEIGHT, CARD_WIDTH, GAP = 340, 440, 296, 8
+
+local function textHeight(fs, fallback)
+    local height = fs:GetStringHeight()
+    return (type(height) == "number" and height > 0) and height or fallback
+end
+
+local function fontString(parent, font, x, y, width)
+    local fs = parent:CreateFontString(nil, "ARTWORK", font)
+    fs:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+    fs:SetWidth(width)
+    fs:SetJustifyH("LEFT")
+    fs:SetJustifyV("TOP")
+    return fs
+end
+
+local function shade(parent, r, g, b, a)
+    local t = parent:CreateTexture(nil, "BACKGROUND")
+    t:SetColorTexture(r, g, b, a)
+    return t
+end
+
+-- "5 min ago" for a saved time (0 = unknown).
+local function ago(stamp)
+    if type(stamp) ~= "number" or stamp <= 0 then return "" end
+    local seconds = math.max(0, time() - stamp)
+    if seconds < 60 then return "just now" end
+    if seconds < 3600 then return ("%d min ago"):format(seconds / 60) end
+    if seconds < 86400 then return ("%d h ago"):format(seconds / 3600) end
+    return ("%d d ago"):format(seconds / 86400)
+end
+
+-- One macro idea or script example, drawn like an entry of the game's macro page.
+local function newCard(parent)
+    local card = CreateFrame("Frame", nil, parent)
+    card:SetWidth(CARD_WIDTH)
+    shade(card, 1, 1, 1, 0.06):SetAllPoints()
+    card.icon = card:CreateTexture(nil, "ARTWORK")
+    card.icon:SetSize(36, 36)
+    card.icon:SetPoint("TOPLEFT", card, "TOPLEFT", 8, -8)
+    card.name = fontString(card, "GameFontNormal", 52, -9, CARD_WIDTH - 60)
+    card.note = fontString(card, "GameFontDisableSmall", 52, -28, CARD_WIDTH - 60)
+    card.why = fontString(card, "GameFontHighlightSmall", 8, -50, CARD_WIDTH - 16)
+    card.box = shade(card, 0, 0, 0, 0.55)
+    card.body = fontString(card, "GameFontHighlightSmall", 12, 0, CARD_WIDTH - 24)
+    card.add = newFrame("Button", nil, card, "UIPanelButtonTemplate")
+    card.add:SetSize(80, 22)
+    return card
+end
+
+local function fillCard(card, idea, y)
+    card.icon:SetTexture(idea.icon)
+    card.name:SetText(plain(idea.name))
+    local level = tonumber(idea.level) or 0
+    if level > 0 then
+        card.note:SetText(("Needs level %d"):format(level))
+        if (UnitLevel("player") or 0) < level then card.note:SetTextColor(1, 0.4, 0.4)
+        else card.note:SetTextColor(0.6, 0.6, 0.6) end
+    else
+        card.note:SetText(idea.script and "Any character" or "Any level")
+        card.note:SetTextColor(0.6, 0.6, 0.6)
+    end
+    card.why:SetText(plain(idea.why))
+    local whyHeight = textHeight(card.why, 24)
+    card.body:SetText(plain(idea.body))
+    local bodyHeight = textHeight(card.body, 36)
+    local boxTop = -(50 + whyHeight + 6)
+    card.box:ClearAllPoints()
+    card.box:SetPoint("TOPLEFT", card, "TOPLEFT", 8, boxTop)
+    card.box:SetSize(CARD_WIDTH - 16, bodyHeight + 8)
+    card.body:ClearAllPoints()
+    card.body:SetPoint("TOPLEFT", card, "TOPLEFT", 12, boxTop - 4)
+    local buttonTop = boxTop - bodyHeight - 8 - 6
+    card.add:ClearAllPoints()
+    card.add:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, buttonTop)
+    local function showState()
+        if core.ideaAdded(idea) then card.add:SetText("Added"); card.add:Disable()
+        else card.add:SetText("Add"); card.add:Enable() end
+    end
+    showState()
+    card.add:SetScript("OnClick", function()
+        core.addIdea(idea)
+        showState()
+    end)
+    card:SetHeight(-buttonTop + 22 + 8)
+    card:ClearAllPoints()
+    card:SetPoint("TOPLEFT", card:GetParent(), "TOPLEFT", 0, -y)
+    card:Show()
+    return card:GetHeight() + GAP
+end
+
+-- One earlier request with its reply; clicking the row shows the whole reply.
+local function newRow(parent)
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetWidth(CARD_WIDTH)
+    row:EnableMouse(true)
+    shade(row, 1, 1, 1, 0.06):SetAllPoints()
+    row.head = fontString(row, "GameFontNormalSmall", 8, -6, CARD_WIDTH - 16)
+    row.text = fontString(row, "GameFontHighlightSmall", 8, -22, CARD_WIDTH - 16)
+    row.reply = fontString(row, "GameFontDisableSmall", 8, 0, CARD_WIDTH - 16)
+    row.again = newFrame("Button", nil, row, "UIPanelButtonTemplate")
+    row.again:SetSize(80, 22)
+    row.again:SetText("Use again")
+    return row
+end
+
+local function fillRow(row, entry, y, expanded, toggle, again)
+    row.head:SetText(("%s, %s"):format(entry.mode == "script" and "Script" or "Macro", ago(entry.time)))
+    row.text:SetText(plain(entry.text))
+    local textTop = textHeight(row.text, 12)
+    local reply = entry.reply and plain(entry.reply) or "No reply yet."
+    if not expanded and #reply > 140 then reply = reply:sub(1, 137) .. "..." end
+    row.reply:SetText(reply)
+    row.reply:ClearAllPoints()
+    row.reply:SetPoint("TOPLEFT", row, "TOPLEFT", 8, -(22 + textTop + 6))
+    local replyHeight = textHeight(row.reply, 12)
+    local buttonTop = -(22 + textTop + 6 + replyHeight + 6)
+    row.again:ClearAllPoints()
+    row.again:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, buttonTop)
+    row.again:SetScript("OnClick", function() again(entry) end)
+    row:SetScript("OnMouseUp", function() toggle(entry.id) end)
+    row:SetHeight(-buttonTop + 22 + 6)
+    row:ClearAllPoints()
+    row:SetPoint("TOPLEFT", row:GetParent(), "TOPLEFT", 0, -y)
+    row:Show()
+    return row:GetHeight() + GAP
+end
+
+-- Put a request back in the box so it can be sent again (or changed first).
+local function useAgain(entry)
+    setMode(entry.mode)
+    window.edit:SetText(entry.text)
+    window.edit:SetFocus()
+    setStatus("Request loaded. Change it if you like, then press Send.")
+end
+
+local function placePanel()
+    panel:ClearAllPoints()
+    local right, screen = window:GetRight(), UIParent:GetWidth()
+    if type(right) == "number" and type(screen) == "number" and right + PANEL_WIDTH + 4 > screen then
+        panel:SetPoint("TOPRIGHT", window, "TOPLEFT", -2, 0)  -- no room on the right: open on the left
+    else
+        panel:SetPoint("TOPLEFT", window, "TOPRIGHT", 2, 0)
+    end
+end
+
+local PANEL_TEXT = {
+    macro = { title = "Macro ideas", help = "Made for your class. Add puts one on this character.",
+              empty = "There are no ideas for your class yet." },
+    script = { title = "Script examples", help = "Short scripts to start from. Add puts one in your account-wide macros.",
+               empty = "There are no script examples." },
+    history = { title = "History", help = "Your recent requests. Click one to read the whole reply.",
+                empty = "No requests yet. Ask for a macro or a script and it will show up here." },
+}
+
+refreshPanel = function()
+    local view = panel.view
+    local key = view == "history" and "history" or window.mode
+    local text = PANEL_TEXT[key]
+    local title = part(panel, "TitleText")
+    if title then title:SetText(text.title) end
+    panel.help:SetText(text.help)
+    local items = view == "history" and core.history() or core.ideas(window.mode)
+    local pool = view == "history" and panel.rows or panel.cards
+    for _, list in ipairs({ panel.rows, panel.cards }) do
+        for _, widget in ipairs(list) do widget:Hide() end
+    end
+    panel.empty:SetText(text.empty)
+    panel.empty:SetShown(#items == 0)
+    local y = 0
+    for index, item in ipairs(items) do
+        if not pool[index] then
+            pool[index] = view == "history" and newRow(panel.content) or newCard(panel.content)
+        end
+        if view == "history" then
+            y = y + fillRow(pool[index], item, y, panel.open == item.id, function(id)
+                panel.open = (panel.open ~= id) and id or nil
+                refreshPanel()
+            end, useAgain)
+        else
+            y = y + fillCard(pool[index], item, y)
+        end
+    end
+    panel.content:SetHeight(math.max(y, 1))
+end
+
+local function buildPanel()
+    local frame, templated = newFrame("Frame", "MacroForgeSidePanel", UIParent, "BasicFrameTemplateWithInset")
+    panel = frame
+    frame:SetSize(PANEL_WIDTH, PANEL_HEIGHT)
+    frame:SetFrameStrata("DIALOG")
+    frame:EnableMouse(true)
+    frame:SetClampedToScreen(true)
+    if not templated then shade(frame, 0, 0, 0, 0.85):SetAllPoints() end
+    if UISpecialFrames then table.insert(UISpecialFrames, "MacroForgeSidePanel") end  -- Esc closes it
+    frame.help = label(frame, "", "GameFontHighlightSmall", PANEL_WIDTH - 2 * LEFT, LEFT, -30, 28)
+    local scroll = newFrame("ScrollFrame", "MacroForgePanelScroll", frame, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT - 2, -62)
+    scroll:SetSize(CARD_WIDTH, PANEL_HEIGHT - 76)
+    frame.content = CreateFrame("Frame", nil, scroll)
+    frame.content:SetSize(CARD_WIDTH, 1)
+    scroll:SetScrollChild(frame.content)
+    frame.empty = label(frame.content, "", "GameFontDisable", CARD_WIDTH - 16, 8, -8, 60)
+    frame.cards, frame.rows = {}, {}
+    frame:Hide()
+    return frame
+end
+
+-- Open the panel on a view ("ideas" or "history"); clicking the same button again closes it.
+local function showPanel(view)
+    if not panel then buildPanel() end
+    if panel:IsShown() and panel.view == view then panel:Hide(); return end
+    panel.view = view
+    placePanel()
+    refreshPanel()
+    panel:Show()
+end
+
+core.onHistory = function()
+    if panel and panel:IsShown() and panel.view == "history" then refreshPanel() end
+end
+
 local function buildWindow()
     local frame, templated = newFrame("Frame", "MacroForgeWindow", UIParent, "BasicFrameTemplateWithInset")
     window = frame
@@ -167,7 +397,11 @@ local function buildWindow()
     frame:SetClampedToScreen(true)
     frame:RegisterForDrag("LeftButton")
     frame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-    frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+    frame:SetScript("OnDragStop", function(self)
+        self:StopMovingOrSizing()
+        if panel and panel:IsShown() then placePanel() end  -- the side may have changed
+    end)
+    frame:SetScript("OnHide", function() if panel then panel:Hide() end end)
     if not templated then
         local background = frame:CreateTexture(nil, "BACKGROUND")
         background:SetAllPoints()
@@ -217,21 +451,23 @@ local function buildWindow()
     frame.status = label(frame, lastStatus, "GameFontNormalSmall", WIDTH - 2 * LEFT, LEFT, -220, 30)
 
     divider(frame, -256)
-    button(frame, "Apply new macros", 150, LEFT, -268, function()
+    frame.ideasButton = button(frame, MODE.macro.ideas, 150, LEFT, -268, function() showPanel("ideas") end)
+    button(frame, "History", 100, LEFT + 160, -268, function() showPanel("history") end)
+    button(frame, "Apply new macros", 150, LEFT, -300, function()
         setStatus("Looking for new macros...")
         core.live()
     end)
     label(frame, "Loads macros your PC just built, with no reload. This happens by itself after a "
                  .. "request; use it if you missed the sound.", "GameFontDisableSmall",
-          WIDTH - 2 * LEFT, LEFT, -298, 30)
+          WIDTH - 2 * LEFT, LEFT, -330, 30)
 
-    divider(frame, -336)
-    frame.toggle = button(frame, "Advanced  >>", 130, LEFT, -346, function()
+    divider(frame, -368)
+    frame.toggle = button(frame, "Advanced  >>", 130, LEFT, -378, function()
         setExpanded(not frame.expanded)
     end)
     local advanced = CreateFrame("Frame", nil, frame)
-    advanced:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -384)
-    advanced:SetSize(WIDTH, HEIGHT_EXPANDED - 384)
+    advanced:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, -416)
+    advanced:SetSize(WIDTH, HEIGHT_EXPANDED - 416)
     frame.advanced = advanced
     addAdvanced(advanced)
     setExpanded(false)

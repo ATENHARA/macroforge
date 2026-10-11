@@ -90,7 +90,7 @@ Works for any class. Your `macros.json` is personal and untracked; the first run
 | `/mf live` | apply the newest macros **without `/reload`** (uses one of the slots) |
 | `/mf export` | save your spellbook, macros, pet and identity to the saved variables |
 | `/mf probe` | read-only capability test: slash commands, conditionals and API presence of this client |
-| `/mf ui` | open the window (also the minimap button): ask for a macro, apply new macros, advanced tools |
+| `/mf ui` | open the window (also the minimap button): ask for a macro or script, ideas, history, apply new macros, advanced tools |
 | `/mf ask <text>` | optional: send a plain-English request to the watcher; the macro is added automatically (no reload) |
 | `/mf script <text>` | optional: the same, but the AI writes a short `/run` Lua script (see below) |
 
@@ -124,6 +124,13 @@ afterwards:
 Request pictures are deleted after they are handled (the setting `delete_request_shots`; if the game still
 holds a file the watcher retries for a minute and then logs which file to delete by hand). Every request is
 recorded in `data/watch.log` before the picture goes.
+
+**Ideas and history (in the window, no watcher needed for the ideas):** the **Macro ideas** button opens a side
+panel with three ready-made macros for your class (what each does, its icon and text, and an **Add** button that
+puts it on your character); in Script mode the same button is **Script examples**. **History** lists your recent
+requests with the replies, and **Use again** puts one back in the request box. Nothing opens until you click.
+The ideas are checked when the addon is built (spells must exist for the class, the text must follow the same
+rules as AI macros); they live in `mforge/resources/suggestions.toml`.
 
 **Scripts (`/mf script`, or the Script button in the window):** the AI writes a short `/run` Lua script
 (print your coordinates, rename your pet at random, toggle the music) as a macro. Scripts are checked more
