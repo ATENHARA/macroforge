@@ -1735,6 +1735,189 @@ test("a lone request that nobody picks up still asks whether the watcher is runn
     truthy(not chat_has(w, "still busy"), chat_dump(w))
 end)
 
+-- macros you delete in the game stay deleted ---------------------------------------------------------------
+
+local function delete_in_game(w, name)
+    for i = 1, 300 do
+        if w.env.GetMacroInfo(i) == name then w.env.DeleteMacro(i) return true end
+    end
+    return false
+end
+
+local function reapply(w)
+    w.chat = {}
+    w.env.SlashCmdList.MACROFORGE("")
+end
+
+test("an account macro you delete in the game is not brought back", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    eq(names(w.account), "Tap")
+    truthy(delete_in_game(w, "Tap"))
+    reapply(w)
+    eq(#w.account, 0)
+    truthy(chat_has(w, "You deleted 'Tap' in the game, so MacroForge will not bring it back"), chat_dump(w))
+    truthy(chat_has(w, "0 created, 0 updated, 0 removed, 0 failed"), chat_dump(w))
+    reapply(w)
+    eq(#w.account, 0)
+    truthy(not chat_has(w, "You deleted"), "the message must not repeat: " .. chat_dump(w))
+end)
+
+test("a character macro you delete stays deleted, and the account macro is unaffected", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    truthy(delete_in_game(w, "Fear MO"))
+    reapply(w)
+    eq(#w.char, 0)
+    eq(names(w.account), "Tap")
+    truthy(chat_has(w, "You deleted 'Fear MO'"), chat_dump(w))
+end)
+
+test("a macro with the same name in the other scope is tracked separately", function()
+    local d = data({ account = { { name = "Same", icon = 1, body = "/cast A" } },
+                     chars = { ["Testy Mage"] = { { name = "Same", icon = 2, body = "/cast C" } } } })
+    local w = world({}, d)
+    w.fire("PLAYER_LOGIN")
+    truthy(delete_in_game(w, "Same"))  -- one of them: the first found
+    reapply(w)
+    eq(#w.account + #w.char, 1)  -- the other is still there
+end)
+
+test("it comes back when you ask for a new version of it", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    delete_in_game(w, "Tap")
+    reapply(w)
+    eq(#w.account, 0)
+    w.env.MacroForgeData = data({ account = { { name = "Tap", icon = 136126, body = "#showtooltip Life Tap\n/cast Life Tap\n/stopcasting" } } })
+    reapply(w)
+    eq(names(w.account), "Tap")
+    truthy(not chat_has(w, "You deleted"), chat_dump(w))
+end)
+
+test("a changed icon alone also brings it back", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    delete_in_game(w, "Tap")
+    reapply(w)
+    w.env.MacroForgeData = data({ account = { { name = "Tap", icon = 999, body = "#showtooltip Life Tap\n/cast Life Tap" } } })
+    reapply(w)
+    eq(names(w.account), "Tap")
+    eq(w.account[1].icon, 999)
+end)
+
+test("macros that already existed in the game are tracked from the first run", function()
+    local w = world({}, data())
+    w.add_macro("Tap", 136126, "#showtooltip Life Tap\n/cast Life Tap", false)
+    w.fire("PLAYER_LOGIN")
+    delete_in_game(w, "Tap")
+    reapply(w)
+    eq(#w.account, 0)
+end)
+
+test("a macro that was never made by MacroForge is still created", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    w.env.MacroForgeData = data({ account = { { name = "Tap", icon = 136126, body = "x" }, { name = "New", icon = 1, body = "/cast New" } } })
+    reapply(w)
+    eq(names(w.account), "Tap,New")
+end)
+
+test("several deleted macros are announced together, with the list shortened", function()
+    local list = {}
+    for i = 1, 6 do list[#list + 1] = { name = "M" .. i, icon = i, body = "/cast M" .. i } end
+    local w = world({}, data({ account = list, chars = {} }))
+    w.fire("PLAYER_LOGIN")
+    for i = 1, 6 do delete_in_game(w, "M" .. i) end
+    reapply(w)
+    truthy(chat_has(w, "You deleted 'M1', 'M2', 'M3', 'M4' and 2 more in the game, so MacroForge will not bring them back"), chat_dump(w))
+    eq(#w.account, 0)
+end)
+
+test("an edit made in the game is still overwritten by the data, as before", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    w.env.EditMacro(1, "Tap", 5, "my own text")
+    reapply(w)
+    eq(w.account[1].body:gsub("%s+$", ""), "#showtooltip Life Tap\n/cast Life Tap")
+end)
+
+test("a removal deletes a macro MacroForge made, and then leaves your own macro of that name alone", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    eq(names(w.account), "Tap")
+    w.env.MacroForgeData = data({ account = {}, remove = { account = { "Tap" }, chars = {} } })
+    reapply(w)
+    eq(#w.account, 0)
+    w.add_macro("Tap", 5, "my own macro", false)
+    reapply(w)
+    eq(names(w.account), "Tap")
+    eq(w.account[1].body:gsub("%s+$", ""), "my own macro")
+    reapply(w)
+    eq(names(w.account), "Tap")
+end)
+
+test("the first time a removal is applied it still deletes a macro that was never tracked", function()
+    local d = data({ account = {}, remove = { account = { "Old" }, chars = {} } })
+    local w = world({}, d)
+    w.add_macro("Old", 1, "/cast Old", false)
+    w.fire("PLAYER_LOGIN")
+    eq(#w.account, 0)
+end)
+
+test("a removal for a name that was never there is remembered, so a later macro of yours stays", function()
+    local d = data({ account = {}, remove = { account = { "Ghost" }, chars = {} } })
+    local w = world({}, d)
+    w.fire("PLAYER_LOGIN")
+    w.add_macro("Ghost", 1, "mine", false)
+    reapply(w)
+    eq(names(w.account), "Ghost")
+end)
+
+test("a name that is both in the data and on the remove list is kept", function()
+    local d = data({ account = { { name = "Both", icon = 1, body = "/cast Both" } },
+                     remove = { account = { "Both" }, chars = {} } })
+    local w = world({}, d)
+    w.fire("PLAYER_LOGIN")
+    eq(names(w.account), "Both")
+end)
+
+test("a macro that leaves the data is forgotten, so the saved list does not grow", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    truthy(w.env.MacroForgeOwned.made["A:Tap"], "Tap should be tracked")
+    w.env.MacroForgeData = data({ account = {} })
+    reapply(w)
+    eq(w.env.MacroForgeOwned.made["A:Tap"], nil)
+end)
+
+test("what is tracked for other characters is left alone", function()
+    local w = world({}, data())
+    w.env.MacroForgeOwned = { made = { ["C:someoneelse:Their Macro"] = "x" }, told = {}, removed = {} }
+    w.fire("PLAYER_LOGIN")
+    eq(w.env.MacroForgeOwned.made["C:someoneelse:Their Macro"], "x")
+end)
+
+test("a damaged saved list of made macros does not stop the macros being applied", function()
+    for _, bad in ipairs({ "text", 5, true, { made = "x", told = 5, removed = {} }, { made = { Tap = {} } } }) do
+        local w = world({}, data())
+        w.env.MacroForgeOwned = bad
+        w.fire("PLAYER_LOGIN")
+        eq(names(w.account), "Tap")
+        truthy(not chat_has(w, "error"), chat_dump(w))
+    end
+end)
+
+test("a macro added from the Ideas panel is tracked and not restored once you delete it", function()
+    local w = world({}, data())
+    w.env.MacroForgeSuggestions = copy(IDEAS)
+    w.fire("PLAYER_LOGIN")
+    w.env.MacroForgeCore.addIdea(w.env.MacroForgeCore.ideas("macro")[1])
+    delete_in_game(w, "Mouseover Fear")
+    reapply(w)
+    eq(names(w.char), "Fear MO")
+end)
+
 -- damaged saved variables ---------------------------------------------------------------------------------
 
 test("damaged counters in the saved variables do not stop the login work", function()

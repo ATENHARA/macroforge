@@ -103,9 +103,12 @@ this after changing the addon (`addon/MacroForge/*.lua`) and after a client upda
 9. **Where it goes:** tick **Save for all characters**, ask for a macro: it appears in the General Macros tab
    (account-wide); untick it and ask again: it appears under the character's own tab. Existing macros do not move
    when edited.
-10. **Bulk changes:** ask for "delete all my macros" when you have 3 or more: the reply lists them and says to add
+10. **Deleting:** delete one of the macros MacroForge made in the macro window (`/macro`), then `/reload`: it is
+    not recreated and chat says "You deleted '...' in the game" once (not again on the next reload). Ask for a
+    changed version of it and it returns.
+11. **Bulk changes:** ask for "delete all my macros" when you have 3 or more: the reply lists them and says to add
    CONFIRM, and nothing changes. Repeat with "confirm: delete all my macros" (use a throwaway character).
-11. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
+12. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
    `install`, `/mf live`: the chat shows the text with the pipes visible, no color and no link.
 
 Before sharing a new version, also try a **fresh install** on another PC (the real download and the Windows

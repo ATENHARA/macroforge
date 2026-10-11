@@ -58,6 +58,12 @@ There is a single-instance lock, a persisted hourly rate limit and an audit log 
 file outside the workspace and edit another one. The CLI refused ("outside ... `--restricted` confines the
 file tools") and the files were untouched.
 
+### What the addon remembers
+The saved variable `MacroForgeOwned` holds, per macro name, the icon and text MacroForge last put in the game
+(so a macro you delete is not recreated), and which `remove` entries have been dealt with (so a macro of the
+same name that you make yourself is not deleted later). It contains macro text you already have, never your
+requests, and it is forgotten for macros that leave `macros.json`. A damaged copy is ignored and rebuilt.
+
 ### Where new macros are saved
 The window's "Save for all characters" choice travels in the request and is enforced by the PC, not trusted to
 the model: every *new* macro in an answer is placed account-wide or on the requesting character as chosen, and

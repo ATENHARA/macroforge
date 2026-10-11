@@ -94,6 +94,12 @@ Works for any class. Your `macros.json` is personal and untracked; the first run
 | `/mf ask <text>` | optional: send a plain-English request to the watcher; the macro is added automatically (no reload) |
 | `/mf script <text>` | optional: the same, but the AI writes a short `/run` Lua script (see below) |
 
+**Deleting macros:** delete a MacroForge macro in the game's macro window and it stays deleted. The addon
+remembers what it made, so a macro that has gone missing is taken as deleted by you and is not recreated (chat says
+so once). It comes back only if its text or icon changes, for example when you ask for a new version. To remove
+one for good, also from `macros.json`, ask for it ("delete my Pet Attack macro") or put it under `remove`; once a
+removal has been applied, a macro of that name that you make yourself is left alone.
+
 After `export` or `probe`, run `/reload` so the game writes the file, then use the matching command above.
 
 ## In-game requests (optional)

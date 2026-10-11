@@ -119,9 +119,30 @@ local function scriptNotice()
         .. "is perfect, so read what a script does before you accept the warning.")
 end
 
+-- What MacroForge has made (saved variable MacroForgeOwned), so that a macro you delete in the game
+-- window stays deleted: `made[key]` is the icon and text we last put in the game, `told[key]` the one
+-- we already announced as deleted by you, `removed[key]` a name the "remove" list has dealt with.
+-- Keys say whose macro it is: "A:name" account-wide, "C:<character>:name" for one character.
+local function owned()
+    if type(MacroForgeOwned) ~= "table" then MacroForgeOwned = {} end
+    for _, field in ipairs({ "made", "told", "removed" }) do
+        if type(MacroForgeOwned[field]) ~= "table" then MacroForgeOwned[field] = {} end
+    end
+    return MacroForgeOwned
+end
+
+local function ownerKey(perChar, name)
+    if not perChar then return "A:" .. name end
+    local first, second = UnitName("player")
+    return "C:" .. norm((first or "") .. ((second and second ~= "") and second or "")) .. ":" .. name
+end
+
+local function signature(m) return tostring(m.icon) .. "\n" .. trim(m.body) end
+
 local function applyOne(m, perChar, stats, trigger)
     local account, char = scan()
     local found = (perChar and char or account)[m.name]
+    local store, key = owned(), ownerKey(perChar, m.name)
     if found then
         local idx = found[1]
         local _, icon, body = GetMacroInfo(idx)
@@ -141,11 +162,21 @@ local function applyOne(m, perChar, stats, trigger)
             DeleteMacro(found[k])
             stats.removed = stats.removed + 1
         end
+        store.made[key], store.told[key] = signature(m), nil
+    elseif store.made[key] == signature(m) then
+        -- we made exactly this macro before and it is gone: you deleted it, so leave it deleted
+        -- (it comes back only if its text or icon changes, e.g. you asked for a new version)
+        if store.told[key] ~= store.made[key] then
+            store.told[key] = store.made[key]
+            stats.gone = stats.gone or {}
+            stats.gone[#stats.gone + 1] = m.name
+        end
     else
         local ok = pcall(CreateMacro, m.name, m.icon, m.body, perChar)
         if ok then
             stats.created = stats.created + 1
             if m.script then stats.scripts = stats.scripts + 1 end
+            store.made[key], store.told[key] = signature(m), nil
         else stats.failed = stats.failed + 1; say("could not create '" .. plain(m.name) .. "' (slots full?)") end
     end
 end
@@ -179,11 +210,15 @@ local function removeByName(names, perChar, stats, keep)
         if type(name) == "string" and not (keep and keep[name]) then
             local account, char = scan()
             local found = (perChar and char or account)[name]
-            if found then
+            local store, key = owned(), ownerKey(perChar, name)
+            -- delete it if we made it, or if this is the first time the removal is applied; once it has
+            -- been dealt with, a macro of the same name that you make yourself is left alone
+            if found and (store.made[key] or not store.removed[key]) then
                 for k = #found, 1, -1 do  -- highest index first so indices stay valid
                     if pcall(DeleteMacro, found[k]) then stats.removed = stats.removed + 1 end
                 end
             end
+            store.removed[key], store.made[key], store.told[key] = true, nil, nil
         end
     end
 end
@@ -290,10 +325,29 @@ local function applyAll(quiet, data, how)
     for key, names in pairs(list(rm.chars)) do
         if me[norm(key)] then removeByName(names, true, stats, keepChar) end
     end
+    -- forget macros that are no longer in the data (account-wide ones, and this character's own)
+    local store, prefix = owned(), ownerKey(true, "")
+    for key in pairs(store.made) do
+        local account, mine = key:sub(1, 2) == "A:", key:sub(1, #prefix) == prefix
+        local name = account and key:sub(3) or (mine and key:sub(#prefix + 1))
+        if name and not (account and keepAccount[name] or mine and keepChar[name]) then
+            store.made[key], store.told[key] = nil, nil
+        end
+    end
     local total = stats.created + stats.updated + stats.removed + stats.failed
     if not quiet or total > 0 then
         say(("%d created, %d updated, %d removed, %d failed"):format(
             stats.created, stats.updated, stats.removed, stats.failed))
+    end
+    if stats.gone then
+        local names = {}
+        for i, name in ipairs(stats.gone) do
+            names[#names + 1] = (i <= 4) and ("'" .. plain(name) .. "'") or nil
+        end
+        local more = #stats.gone > 4 and (" and " .. (#stats.gone - 4) .. " more") or ""
+        say(("You deleted %s%s in the game, so MacroForge will not bring %s back. It returns only "
+             .. "if you ask for a new version of it."):format(table.concat(names, ", "), more,
+                                                              #stats.gone == 1 and "it" or "them"))
     end
     if stats.scripts > 0 then scriptNotice() end
 end
