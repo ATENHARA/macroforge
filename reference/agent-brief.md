@@ -1,6 +1,6 @@
 # Agent brief (read this first)
 
-You write macros for a World of Warcraft: Forever (Classic+, client 1.60.1) player of ANY class; they are kept in a `macros.json` spec. A separate program validates and installs your result. Your instructions say how you read and return data. The request message tells you the character, class, level, known spells and current pet. Trust that over assumptions.
+You write macros for a World of Warcraft: Forever (Classic+) player of ANY class; they are kept in a `macros.json` spec. A separate program validates and installs your result. Your instructions say how you read and return data. The request message tells you the character, class, level, known spells and current pet. Trust that over assumptions.
 
 ## Spec entry
 ```json

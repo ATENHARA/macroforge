@@ -1,6 +1,6 @@
 # Macro reference
 
-Written for WoW: Forever (Classic+, client build 1.60.1, **TOC 16001**) but sourced from the community wiki, which documents all versions together and does **not** say which command or conditional exists on which client.
+Written for WoW: Forever (Classic+; the client build and TOC number are in the newest `compat-<toc>.md`) but sourced from the community wiki, which documents all versions together and does **not** say which command or conditional exists on which client.
 
 ## How versions are handled
 1. The files below are the wiki-derived reference. Status marks: `[?]` = unconfirmed on Forever, `[ok]` = confirmed by in-game test.

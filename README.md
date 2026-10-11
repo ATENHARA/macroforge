@@ -183,7 +183,9 @@ python macroforge.py build
 python macroforge.py install
 ```
 Then in game `/mf probe`, `/reload`, and `python macroforge.py report` to refresh the compatibility report.
-Slot addons normally survive updates; if `/mf live` says they are missing, run `slots` again and restart WoW.
+The game's interface number (`## Interface:` in `addon/MacroForge/MacroForge.toc` and `mforge/resources/slot.toc`)
+is fixed in those two files; if a patch changes it (the report shows the current one) and the game calls the
+addon out of date, update both numbers. Slot addons normally survive updates; if `/mf live` says they are missing, run `slots` again and restart WoW.
 
 ## Security
 MacroForge writes only inside its own folder, the addon's folders in your AddOns directory
@@ -205,7 +207,8 @@ Layout: `macroforge.py` (entry), `mforge/` (library; `resources/` holds the prom
 See [docs/TESTING.md](docs/TESTING.md), including the in-game checklist for the Lua addon.
 
 ## License
-MIT, see [LICENSE](LICENSE).
+[PolyForm Noncommercial 1.0.0](LICENSE): free to use, change and share for any noncommercial purpose; not
+for sale or commercial use. Credits and the wiki-derived reference files: [NOTICE.md](NOTICE.md).
 
 ## Known gaps
 - The Lua addon is tested offline against a fake WoW API (optional LuaJIT install, see
