@@ -127,8 +127,8 @@ class ExamplesRunTests(unittest.TestCase):
         self.assertRegex(emote, r"^DoEmote\((dance|cheer|laugh|wave|bow)\)$")
 
     def test_the_mark_examples(self):
-        self.assertEqual(self.result("Mark your target with a skull")[2], "SetRaidTarget(target,8)")
-        marks = self.result("Cycle the raid mark on your target", 10)[2].split(";")
+        self.assertEqual(self.result("Mark your target with a skull (group only)")[2], "SetRaidTarget(target,8)")
+        marks = self.result("Cycle the raid mark on your target (group only)", 10)[2].split(";")
         self.assertEqual(marks[:3], ["SetRaidTarget(target,1)", "SetRaidTarget(target,2)",
                                      "SetRaidTarget(target,3)"])
         self.assertEqual(marks[8], "SetRaidTarget(target,1)")  # wraps after eight marks

@@ -26,7 +26,11 @@ the exact list of refused names. The request message tells you the character, cl
 - **Show it:** `print(...)` (chat window), `UIErrorsFrame:AddMessage(text, r, g, b)` (middle of the
   screen), `PlaySound(id)` (a built-in sound).
 - **Do ONE thing to the game:** for example `DoEmote("dance")`, `C_PetInfo.PetRename(name)`,
-  `SetCVar("Sound_EnableSFX", 0)`, `SetRaidTarget("target", 1)`, `ReloadUI()`.
+  `SetCVar("Sound_EnableSFX", 0)`, `ReloadUI()`.
+- **Group-only actions:** raid markers (`SetRaidTarget("target", 8)`) only work in a party or raid, and
+  only your group sees them; solo they do nothing and give no error. They are allowed. When someone asks
+  for one, add "needs a group" to your reply. Calling it again with the same mark toggles it off. (For one
+  fixed mark an ordinary macro with `/tm 8` also works.)
 - **Plain Lua 5.1:** `math`, `string`, `table`, `random`, `format`, `strsplit`, `date`, `time`, ...
 
 ## The rules (why scripts are refused)

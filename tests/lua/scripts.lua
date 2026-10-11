@@ -50,7 +50,7 @@ local function new_env()
         GetMoney = function() return 10203 end,
         GetMoneyString = function() return "1g 2s 3c" end,
         UnitExists = function() return true end, UnitName = function() return "Bob" end,
-        UnitLevel = function() return 30 end, UnitClass = function() return "Warlock" end,
+        UnitLevel = function() return 30 end, UnitClass = function() return "Warlock", "WARLOCK", 9 end,
         UnitAffectingCombat = function() return false end,
         GetCVar = function() return "1" end,
         SetCVar = record("SetCVar"), DoEmote = record("DoEmote"), C_PetInfo = { PetRename = record("PetRename") },

@@ -48,7 +48,7 @@ Averages the durability of everything you wear.
 
 ### Who is my target
 ```
-/run if UnitExists("target")then print(UnitName("target"),UnitLevel("target"),UnitClass("target"))end
+/run if UnitExists("target")then print(UnitName("target"),UnitLevel("target"),(UnitClass("target")))end
 ```
 
 ### Combat state
@@ -101,12 +101,12 @@ The global `MF_p` remembers the last pick between presses.
 /run local e={"dance","cheer","laugh","wave","bow"};DoEmote(e[random(#e)])
 ```
 
-### Mark your target with a skull
+### Mark your target with a skull (group only)
 ```
 /run SetRaidTarget("target",8)
 ```
 
-### Cycle the raid mark on your target
+### Cycle the raid mark on your target (group only)
 ```
 /run MF_m=((MF_m or 0)%8)+1;SetRaidTarget("target",MF_m)
 ```
