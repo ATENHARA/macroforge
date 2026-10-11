@@ -2,7 +2,8 @@
 saves a TGA picture of it immediately, so the watcher can read it without any reload.
 
 Payload (UTF-8 text, fields separated by tabs): ``MFREQ``, request id, level, class, character,
-request text. Every field still goes through ``validate.parse_request`` like any other request.
+request text and, optionally, the mode (``macro`` or ``script``). Every field still goes through
+``validate.parse_request`` like any other request.
 """
 from __future__ import annotations
 
@@ -61,13 +62,14 @@ def request_from_payload(payload: bytes) -> dict:
         parts = payload.decode("utf-8").split("\t")
     except UnicodeDecodeError:
         raise ValidationError("strip text is not UTF-8") from None
-    if len(parts) != 6 or parts[0] != TAG:
+    if len(parts) not in (6, 7) or parts[0] != TAG:  # the 7th field (macro/script) is optional
         raise ValidationError("strip is not a MacroForge request")
     try:
         req_id, level = int(parts[1]), int(parts[2])
     except ValueError:
         raise ValidationError("strip has a bad id or level") from None
-    return {"id": req_id, "level": level, "class": parts[3], "char": parts[4], "text": parts[5]}
+    return {"id": req_id, "level": level, "class": parts[3], "char": parts[4], "text": parts[5],
+            "mode": parts[6] if len(parts) == 7 else "macro"}
 
 
 def read_request(path: Path) -> dict:

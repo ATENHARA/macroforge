@@ -9,6 +9,7 @@ from functools import partial
 from mforge import agent, stripcodec, watcher
 from mforge.errors import ValidationError
 from mforge.shots import ShotScanner, request_from_payload
+from mforge.validate import parse_request
 from tests.test_agent_watcher import NEW_MACRO, WatcherCase, add_macro, fake_process
 from tests.test_strip import make_tga
 
@@ -19,11 +20,19 @@ class PayloadTests(WatcherCase):
     def test_valid_payload(self):
         self.assertEqual(request_from_payload(FIELDS.encode()),
                          {"id": 4242, "level": 30, "class": "WARLOCK", "char": "Test Char",
-                          "text": "add a corruption macro"})
+                          "text": "add a corruption macro", "mode": "macro"})
+
+    def test_a_seventh_field_sets_the_mode(self):
+        self.assertEqual(request_from_payload((FIELDS + "	script").encode())["mode"], "script")
+
+    def test_an_unknown_mode_is_refused_when_the_request_is_validated(self):
+        raw = request_from_payload((FIELDS + "	bogus").encode())
+        with self.assertRaises(ValidationError):
+            parse_request(raw, {"warlock"})
 
     def test_bad_payloads(self):
         for bad in (b"hello", b"MFREQ\t1\t2", b"MFREQ\tx\t30\tWARLOCK\tA\tB", b"\xff\xfe",
-                    b"OTHER\t1\t30\tWARLOCK\tA\tB", FIELDS.encode() + b"\textra"):
+                    b"OTHER\t1\t30\tWARLOCK\tA\tB", FIELDS.encode() + b"\textra\textra"):
             with self.assertRaises(ValidationError, msg=bad):
                 request_from_payload(bad)
 

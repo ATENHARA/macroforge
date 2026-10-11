@@ -92,6 +92,7 @@ Works for any class. Your `macros.json` is personal and untracked; the first run
 | `/mf probe` | read-only capability test: slash commands, conditionals and API presence of this client |
 | `/mf ui` | open the window (also the minimap button): ask for a macro, apply new macros, advanced tools |
 | `/mf ask <text>` | optional: send a plain-English request to the watcher; the macro is added automatically (no reload) |
+| `/mf script <text>` | optional: the same, but the AI writes a short `/run` Lua script (see below) |
 
 After `export` or `probe`, run `/reload` so the game writes the file, then use the matching command above.
 
@@ -123,6 +124,15 @@ afterwards:
 Request pictures are deleted after they are handled (the setting `delete_request_shots`; if the game still
 holds a file the watcher retries for a minute and then logs which file to delete by hand). Every request is
 recorded in `data/watch.log` before the picture goes.
+
+**Scripts (`/mf script`, or the Script button in the window):** the AI writes a short `/run` Lua script
+(print your coordinates, rename your pet at random, toggle the music) as a macro. Scripts are checked more
+strictly than macros: no chat, items, gold, mail, trades or guilds; no timers, loops without a bound, or
+anything that repeats by itself; at most one game action per key press. The first time you press one,
+Blizzard shows its own warning ("You are attempting to run a custom script..."); that is normal and appears
+for every script from any source. The checks are designed to stay within Blizzard's rules for macros and
+addons, which do not mention scripts directly; they are not an approval by Blizzard. See
+[docs/SECURITY.md](docs/SECURITY.md).
 
 **Using GPT or a local model instead of Claude:** choose it in `setup.cmd` (or run
 `python macroforge.py setup --backend openai` or `--backend local`), or set it in `config.json`:

@@ -822,6 +822,249 @@ test("several new macros in one reply are all created, account-wide and per char
     eq(names(w.char):find("C1", 1, true) ~= nil and names(w.char):find("C3", 1, true) ~= nil, true)
 end)
 
+-- scripts: request mode, the window toggle, the syntax check, the Blizzard notice, the probe ---------------
+
+local function spy_strip(w)
+    local seen = {}
+    w.env.MacroForgeStrip.Send = function(id, payload, done) seen.payload, seen.id, seen.done = payload, id, done end
+    return seen
+end
+
+local function fields(payload)
+    local out = {}
+    for part in (payload .. "\t"):gmatch("(.-)\t") do out[#out + 1] = part end
+    return out
+end
+
+local function script_data(body, extra)
+    local entry = { name = "Coords", icon = 1, body = body, script = true }
+    for k, v in pairs(extra or {}) do entry[k] = v end
+    return data({ account = { entry } })
+end
+
+test("/mf ask keeps the old six-field payload and records the macro mode", function()
+    local w = ui_world()
+    local seen = spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("ask make a fear macro")
+    eq(#fields(seen.payload), 6)
+    eq(w.env.MacroForgeRequests[1].mode, "macro")
+end)
+
+test("/mf script sends a script request with a seventh field", function()
+    local w = ui_world()
+    local seen = spy_strip(w)
+    w.env.SlashCmdList.MACROFORGE("script print my coordinates")
+    local parts = fields(seen.payload)
+    eq(#parts, 7)
+    eq(parts[7], "script")
+    eq(parts[6], "print my coordinates")
+    eq(w.env.MacroForgeRequests[1].mode, "script")
+    truthy(chat_has(w, "script request"), chat_dump(w))
+end)
+
+test("the usage messages name the right command", function()
+    local w = ui_world()
+    w.env.SlashCmdList.MACROFORGE("script")
+    truthy(chat_has(w, "usage: /mf script"), chat_dump(w))
+    w.chat = {}
+    w.env.SlashCmdList.MACROFORGE("ask")
+    truthy(chat_has(w, "usage: /mf ask"), chat_dump(w))
+    eq(w.env.MacroForgeRequests, nil)
+end)
+
+test("a finished script request says the script is ready", function()
+    local w = ui_world()
+    w.addon_files["MacroForge_S001"] = slot_source(150)
+    w.env.SlashCmdList.MACROFORGE("script print my coordinates")
+    click(w.env.MacroForgeMinimapButton)
+    local id = w.env.MacroForgeRequests[1].id
+    w.advance(2.2)
+    w.addon_files["MacroForge_S002"] = slot_with_reply(300, id)
+    w.advance(30)
+    truthy(window_of(w).status:GetText():find("Your script is ready", 1, true), window_of(w).status:GetText())
+end)
+
+test("the window switches between macro and script requests", function()
+    local w = ui_world()
+    click(w.env.MacroForgeMinimapButton)
+    local window = window_of(w)
+    eq(window.mode, "macro")
+    eq(window.heading:GetText(), "Ask for a macro")
+    click(w.find("Button", "Script"))
+    eq(window.mode, "script")
+    eq(window.heading:GetText(), "Ask for a script")
+    truthy(window.desc:GetText():find("script", 1, true))
+    truthy(window.status:GetText():find("custom-script warning", 1, true), window.status:GetText())
+    eq(w.find("Button", "Script").props.Disabled, true)   -- the active mode looks pressed
+    eq(w.find("Button", "Macro").props.Disabled, false)
+    local seen = spy_strip(w)
+    window.edit:SetText("toggle the sound effects")
+    click(w.find("Button", "Send request"))
+    eq(fields(seen.payload)[7], "script")
+    click(w.find("Button", "Macro"))
+    eq(window.mode, "macro")
+    eq(window.heading:GetText(), "Ask for a macro")
+    window.edit:SetText("a fear macro")
+    click(w.find("Button", "Send request"))
+    eq(#fields(seen.payload), 6)
+end)
+
+test("switching back to macro mode restores the idle status", function()
+    local w = ui_world()
+    click(w.env.MacroForgeMinimapButton)
+    click(w.find("Button", "Script"))
+    click(w.find("Button", "Macro"))
+    eq(window_of(w).status:GetText(), "Ready.")
+end)
+
+test("the chosen mode is remembered between sessions", function()
+    local w = ui_world()
+    click(w.env.MacroForgeMinimapButton)
+    click(w.find("Button", "Script"))
+    eq(w.env.MacroForgeUI.mode, "script")
+    local w2 = world({}, data())
+    w2.env.MacroForgeUI = { mode = "script" }
+    w2.fire("PLAYER_LOGIN")
+    click(w2.env.MacroForgeMinimapButton)
+    eq(window_of(w2).heading:GetText(), "Ask for a script")
+    local w3 = world({}, data())
+    w3.env.MacroForgeUI = { mode = "bogus" }
+    w3.fire("PLAYER_LOGIN")
+    click(w3.env.MacroForgeMinimapButton)
+    eq(window_of(w3).mode, "macro")
+end)
+
+test("a script macro is installed and the Blizzard warning is explained once", function()
+    local w = world({}, script_data('/run print("hi")'))
+    w.fire("PLAYER_LOGIN")
+    eq(names(w.account), "Coords")
+    truthy(chat_has(w, "Blizzard shows a warning"), chat_dump(w))
+    truthy(chat_has(w, "appears for every custom script"), chat_dump(w))
+    eq(w.env.MacroForgeUI.scriptNoticeSeen, true)
+    w.chat = {}
+    w.env.SlashCmdList.MACROFORGE("")
+    truthy(not chat_has(w, "Blizzard shows a warning"), chat_dump(w))
+    w.addon_files["MacroForge_S001"] = (function()
+        return 'MacroForgeSlotData = { rev = 400, account = { { name = "Coords", icon = 1, body = "/run print(2)", script = true } }, chars = {}, remove = { account = {}, chars = {} }, replies = {} }'
+    end)()
+    w.env.SlashCmdList.MACROFORGE("live")
+    truthy(not chat_has(w, "Blizzard shows a warning"), "the notice must not repeat")
+end)
+
+test("the notice is skipped once Blizzard's warning has been accepted", function()
+    local w = world({}, script_data('/run print("hi")'))
+    w.cvars.allowDangerousScripts = "1"
+    w.fire("PLAYER_LOGIN")
+    eq(names(w.account), "Coords")
+    truthy(not chat_has(w, "Blizzard shows a warning"), chat_dump(w))
+    local w2 = world({}, script_data('/run print("hi")'))
+    w2.cvars.allowDangerousScripts = "0"
+    w2.fire("PLAYER_LOGIN")
+    truthy(chat_has(w2, "Blizzard shows a warning"), chat_dump(w2))
+end)
+
+test("a client without that setting still gets the notice", function()
+    local w = world({}, script_data('/run print("hi")'))
+    w.env.GetCVar = function() error("unknown cvar") end
+    w.fire("PLAYER_LOGIN")
+    truthy(chat_has(w, "Blizzard shows a warning"), chat_dump(w))
+end)
+
+test("ordinary macros never trigger the script notice", function()
+    local w = world({}, data())
+    w.fire("PLAYER_LOGIN")
+    truthy(not chat_has(w, "Blizzard"), chat_dump(w))
+    eq((w.env.MacroForgeUI or {}).scriptNoticeSeen, nil)
+end)
+
+test("a script with a syntax error is not installed, and the others still are", function()
+    local d = data({ account = { { name = "Bad", icon = 1, body = "/run print(", script = true },
+                                 { name = "Good", icon = 1, body = "/run print(1)", script = true },
+                                 { name = "Plain", icon = 1, body = "/cast Fear" } } })
+    local w = world({}, d)
+    w.fire("PLAYER_LOGIN")
+    eq(names(w.account), "Good,Plain")
+    truthy(chat_has(w, "'Bad' was not installed"), chat_dump(w))
+    truthy(chat_has(w, "1 failed") or chat_has(w, "2 created, 0 updated, 0 removed, 1 failed"), chat_dump(w))
+end)
+
+test("a script entry must be /run lines only", function()
+    for _, body in ipairs({ "/cast Fear", "print(1)", "#showtooltip\n/run print(1)", "/run" }) do
+        local w = world({}, script_data(body))
+        w.fire("PLAYER_LOGIN")
+        eq(#w.account, 0)
+        truthy(chat_has(w, "was not installed"), body .. " / " .. chat_dump(w))
+    end
+end)
+
+test("several /run lines are each checked", function()
+    local w = world({}, script_data("/run print(1)\n/run print(2"))
+    w.fire("PLAYER_LOGIN")
+    eq(#w.account, 0)
+    local w2 = world({}, script_data("/run print(1)\n/run print(2)"))
+    w2.fire("PLAYER_LOGIN")
+    eq(#w2.account, 1)
+end)
+
+test("a script is never run by MacroForge, only compiled", function()
+    local ran = false
+    local w = world({}, script_data("/run MF_RAN=true"))
+    w.env.MF_RAN = nil
+    w.fire("PLAYER_LOGIN")
+    eq(#w.account, 1)
+    eq(w.env.MF_RAN, nil)
+end)
+
+test("a script flag of the wrong type makes the entry malformed", function()
+    local w = world({}, script_data("/run print(1)", { script = "yes" }))
+    w.fire("PLAYER_LOGIN")
+    eq(#w.account, 0)
+    truthy(chat_has(w, "malformed"), chat_dump(w))
+end)
+
+test("without loadstring the syntax check is skipped but the /run rule still applies", function()
+    local w = world({}, script_data("/run print("))
+    w.env.loadstring = false
+    w.fire("PLAYER_LOGIN")
+    eq(#w.account, 1)
+    local w2 = world({}, script_data("/cast Fear"))
+    w2.env.loadstring = false
+    w2.fire("PLAYER_LOGIN")
+    eq(#w2.account, 0)
+end)
+
+test("the probe records the game's own functions and leaves other addons out", function()
+    local w = world({}, data())
+    w.env.GetTime = function() return 1 end
+    w.env.C_Map = { GetBestMapForUnit = function() end, Version = 1 }
+    w.env.UIErrorsFrame = {}
+    w.env.EvilAddonGlobal = function() end
+    w.env.SomeAddonTable = {}
+    w.env.issecurevariable = function(name) return name ~= "EvilAddonGlobal" and name ~= "SomeAddonTable" end
+    w.env.MacroForge_Probe()
+    local script = w.env.MacroForgeProbe.script
+    local set = {}
+    for _, name in ipairs(script.names) do set[name] = true end
+    truthy(set.GetTime and set.C_Map and set.UIErrorsFrame, "game names are recorded")
+    truthy(not set.EvilAddonGlobal and not set.SomeAddonTable, "another addon's names must not be recorded")
+    eq(script.members.C_Map[1], "GetBestMapForUnit")
+    eq(#script.members.C_Map, 1)
+    eq(script.loadstring, "function")
+    local sorted = true
+    for i = 2, #script.names do if script.names[i - 1] > script.names[i] then sorted = false end end
+    truthy(sorted, "names are sorted")
+    truthy(chat_has(w, "game functions for scripts"), chat_dump(w))
+end)
+
+test("the probe copes with a client that has no issecurevariable", function()
+    local w = world({}, data())
+    w.env.GetTime = function() return 1 end
+    w.env.issecurevariable = nil
+    local ok, err = pcall(w.env.MacroForge_Probe)
+    truthy(ok, tostring(err))
+    eq(#w.env.MacroForgeProbe.script.names, 0)  -- unknown whose names these are: record none
+end)
+
 -- run ---------------------------------------------------------------------------------------------------
 
 local failures = 0

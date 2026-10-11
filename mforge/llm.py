@@ -28,6 +28,7 @@ from . import keystore
 from .agent import AgentResult, AgentTimeout, build_prompt, ensure_pet_table, read_context
 from .assets import read_text
 from .errors import AgentError, ConfigError, ValidationError
+from .luacheck import rules_summary
 from .settings import LOOPBACK_HOSTS, Settings
 from .spec import read_spec
 from .validate import Request, norm
@@ -36,6 +37,8 @@ log = logging.getLogger(__name__)
 
 MAX_RESPONSE_BYTES = 1_000_000
 MAX_UPSERTS = 8
+MAX_SCRIPT_UPSERTS = 4  # scripts are longer to read and riskier, so fewer per answer
+MAX_EXAMPLES = 9000  # bytes of script examples put in the prompt
 MAX_FEEDBACK = 300  # characters of our own error text sent back to the model
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.S | re.I)
 _KEYLIKE = re.compile(r"\b(?:sk|key|tok)-[A-Za-z0-9_\-]{12,}")
@@ -99,8 +102,14 @@ def require_ready(settings: Settings) -> None:
 
 # -- prompt --------------------------------------------------------------------------------------
 
-def system_message(settings: Settings) -> str:
-    """The rules for a chat model: ``prompt_chat.md`` followed by the context file."""
+def system_message(settings: Settings, mode: str = "macro") -> str:
+    """The rules for a chat model: the prompt for this mode followed by its context file."""
+    if mode == "script":
+        rules = Template(read_text("prompt_chat_script.md")).safe_substitute(
+            rules=rules_summary(max_actions=settings.script_max_actions))
+        examples = settings.root / "reference" / "script-examples.md"
+        text = examples.read_text(encoding="utf-8")[:MAX_EXAMPLES] if examples.exists() else ""
+        return rules + "\n" + read_context(settings, "script") + ("\n\n" + text if text else "")
     blocked = ", ".join("/" + c for c in sorted(settings.blocked_commands))
     rules = Template(read_text("prompt_chat.md")).safe_substitute(blocked=blocked)
     return rules + "\n" + read_context(settings)
@@ -113,9 +122,10 @@ def _relevant_macros(settings: Settings, req: Request) -> list[dict]:
     except ValidationError:
         return []
     mine = norm(req.char)
-    keep = ("name", "char", "icon", "body")
+    keep = ("name", "char", "icon", "body", "kind")
+    wanted = (lambda m: m.get("kind") == "script") if req.mode == "script" else (lambda m: True)
     return [{k: m[k] for k in keep if k in m} for m in macros if isinstance(m, dict)
-            and (not m.get("char") or norm(m.get("char")) == mine)]
+            and wanted(m) and (not m.get("char") or norm(m.get("char")) == mine)]
 
 
 def _relevant_pets(settings: Settings, req: Request, export: dict | None) -> dict[str, list[str]]:
@@ -137,11 +147,12 @@ def _relevant_pets(settings: Settings, req: Request, export: dict | None) -> dic
 def build_messages(settings: Settings, req: Request, export: dict | None) -> list[dict]:
     """The chat messages for one request."""
     user = build_prompt(req, export)
-    user += "\nCurrent macros (JSON):\n" + json.dumps(_relevant_macros(settings, req), indent=1)
-    pets = _relevant_pets(settings, req, export)
+    label = "Current scripts" if req.mode == "script" else "Current macros"
+    user += f"\n{label} (JSON):\n" + json.dumps(_relevant_macros(settings, req), indent=1)
+    pets = {} if req.mode == "script" else _relevant_pets(settings, req, export)
     if pets:
         user += "\n\nPet abilities by family (JSON):\n" + json.dumps(pets)
-    return [{"role": "system", "content": system_message(settings)},
+    return [{"role": "system", "content": system_message(settings, req.mode)},
             {"role": "user", "content": user}]
 
 
@@ -185,7 +196,7 @@ def merge_change(current: dict, change: dict) -> str:
     for entry in change["upsert"]:
         if not isinstance(entry.get("name"), str) or not isinstance(entry.get("body"), str):
             raise ValidationError("every macro needs a text name and a text body")
-        clean = {k: entry[k] for k in ("name", "char", "icon", "body") if k in entry}
+        clean = {k: entry[k] for k in ("name", "char", "icon", "body", "kind") if k in entry}
         for index, existing in enumerate(macros):
             if isinstance(existing, dict) and _key(existing) == _key(clean):
                 macros[index] = clean
@@ -332,6 +343,9 @@ def run_chat(settings: Settings, req: Request, export: dict | None,
         totals.add(response)
         try:
             change = parse_change(content)
+            if req.mode == "script" and len(change["upsert"]) > MAX_SCRIPT_UPSERTS:
+                raise ValidationError("too many scripts in one answer "
+                                      f"(at most {MAX_SCRIPT_UPSERTS})")
             spec_text = merge_change(current, change)
             if check is not None:
                 check(spec_text)

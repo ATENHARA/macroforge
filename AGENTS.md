@@ -16,10 +16,15 @@ others). `CLAUDE.md` imports it; a tool that expects another file name can impor
 Do not use `/script`, `/run`, `/dump` or `/console` in macros. The in-game request feature (`/mf ask` +
 `watch`) is optional; do not set it up unless asked.
 
+## When the user asks for a script (a `/run` line of Lua)
+Read `reference/script-brief.md` and `reference/script-examples.md`, write the macro with `"kind": "script"`
+in `macros.json`, and run `build`: `mforge/luacheck.py` applies the rules in `mforge/resources/script_rules.toml`.
+Never work around a refusal; the denied functions are the safety boundary. Scripts are macros, so 255 bytes.
+
 ## When changing the code
 - Layout: `macroforge.py` is a thin entry point; the library is the `mforge/` package (one job per module;
   `/mf ask` requests arrive as screenshots: `stripcodec.py` decodes them, `shots.py` finds and cleans up
-  the pictures, the addon's `Codec.lua` draws them, `UI.lua` is the minimap button and window; `setup.py` is the first-run wizard behind `setup.cmd`; `agent.py` runs the Claude CLI, `llm.py` talks to
+  the pictures, the addon's `Codec.lua` draws them, `UI.lua` is the minimap button and window; `setup.py` is the first-run wizard behind `setup.cmd`; `agent.py` runs the Claude CLI, `luaparse.py` and `luacheck.py` check `/run` scripts, `llm.py` talks to
   OpenAI-style chat endpoints and `keystore.py` keeps its API key in Credential Manager; the watcher picks one with `agent_backend`);
   prompt text and command/conditional lists live in `mforge/resources/`, not in code.
 - Run the tests before and after: `python -m unittest discover -s tests` (about a minute and a half, no game needed).

@@ -13,6 +13,8 @@
   "llm_json_mode": true,
   "llm_retries": 1,
   "agent_context_file": "",
+  "script_context_file": "",
+  "script_max_actions": 1,
   "agent_max_budget_usd": 0.5,
   "agent_timeout_seconds": 300,
   "max_requests_per_hour": 10,

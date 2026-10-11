@@ -46,7 +46,8 @@ For each request the watcher runs `claude -p` with:
 - `--tools Read,Glob,Grep,Edit`, `--permission-mode acceptEdits`, no MCP servers, no skills, no saved
   session, a per-request spend cap and a time limit (the whole process tree is killed on timeout);
 - a fresh folder holding only copies of `macros.json`, `agent-brief.md`, the class spell table, the pet
-  table and the icon list; the real project is never visible to it;
+  table and the icon list (script requests: the script brief, the examples, the icon list and, if the
+  probe ran, the game's function names); the real project is never visible to it;
 - an allowlisted environment (`ENV_ALLOW` in `mforge/agent.py`): system and profile folders, proxy
   settings and an explicit `ANTHROPIC_API_KEY`. Other tokens in your environment are not passed on.
 
@@ -56,6 +57,35 @@ There is a single-instance lock, a persisted hourly rate limit and an audit log 
 **Verified:** `tests/test_live.py` (opt-in) runs the real CLI with a neutral prompt that asks it to read a
 file outside the workspace and edit another one. The CLI refused ("outside ... `--restricted` confines the
 file tools") and the files were untouched.
+
+### Script requests (`/mf script`)
+A script is a macro whose body is `/run <one line of Lua>`. Lua is real code, so scripts get their own
+mode, their own AI instructions (`reference/script-brief.md`) and their own checker (`mforge/luacheck.py`,
+rules in `mforge/resources/script_rules.toml`). A request carries its mode; a script request may only add or
+change scripts and a macro request may never contain `/run`, `/script` or a script entry.
+
+The checker parses the Lua (the same grammar as the game's Lua 5.1) and refuses, with a reason:
+- dynamic access (`_G`, `loadstring`, `getfenv`, computed names like `["Send".."Chat"]`), `os`, `io`,
+  `debug` and the like, so a denied function cannot be reached indirectly;
+- families of functions: chat and social, mail, trade, auction, guild and party administration, item and
+  gold actions, casting and targeting, accepting or confirming prompts, movement, logout and session,
+  and changing macros, bindings or addons; a list of settings (CVars) that `SetCVar` may not touch;
+- timers, frames, hooks and events, `while`/`repeat`/`goto`, loops with unbounded or deep limits,
+  `string.rep`, and global variables that do not start with `MF_`;
+- more than `script_max_actions` (default 1) state-changing calls, or one inside a loop or function.
+
+Everything else the client exposes is allowed. With probe data (`/mf probe`, then `report`) a function that
+does not exist in this game is also refused; only names Blizzard defined are recorded (never other addons').
+The addon compiles each script with `loadstring` before installing it (it is never run by MacroForge).
+
+**Blizzard's rules, honestly:** the game shows "You are attempting to run a custom script..." for every
+custom script; it is a warning, not a penalty. Blizzard's add-on policy does not mention macros or
+`/run`. The [End User License Agreement](https://www.blizzard.com/en-us/legal/fba4d00f-c7e4-4883-b8b9-1b4500a402ea/blizzard-end-user-license-agreement)
+prohibits bots and other software that automates control of the game. "One key press, one action" is the
+community and moderator reading, not Blizzard text, so MacroForge is *designed to stay within* these
+rules, which is not a guarantee or approval from Blizzard. A script is tainted code and cannot call
+protected functions; such calls fail harmlessly in game. Read what a script does before you accept the
+warning.
 
 ### Other AIs (OpenAI-style endpoints)
 With `agent_backend: openai` the watcher sends one HTTPS request to the address in `llm_base_url` instead of

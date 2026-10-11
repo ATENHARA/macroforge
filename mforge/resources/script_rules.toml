@@ -1,0 +1,118 @@
+# Rules for `/run` scripts (mode "script"). Data, not code: `mforge/luacheck.py` applies them.
+#
+# The approach: anything the game exposes is allowed unless it is dangerous, and a few structural
+# rules close the doors a denylist cannot (computed names, runaway loops, timers). Each denial
+# carries a reason that is shown to the player. "Designed to stay within Blizzard's rules" is the
+# goal: one key press does one thing, nothing is automated, and nothing touches other players,
+# items, gold, mail, trades or guilds.
+
+max_actions = 1        # state-changing calls per script (one key press = one action)
+max_loop_depth = 2     # nested loops
+max_loop_bound = 1000  # largest literal loop count
+
+# Whole namespaces that are only ever actions on other players, mail, trades, auctions or timers.
+denied_namespaces = [
+  "C_ChatInfo", "C_Mail", "C_FriendList", "C_BattleNet", "C_PartyInfo", "C_GuildInfo",
+  "C_AuctionHouse", "C_TradeSkillUI", "C_AddOns", "C_CVar", "C_Timer", "C_Calendar",
+]
+
+# CVars `SetCVar` may not touch (account, realm, privacy and scripting settings), matched
+# case-insensitively against the whole name. The name must be written out in the script.
+denied_cvars = [
+  "portal", "realmlist", "realmname", "accountname", "savedaccountname", "scriptmemory",
+  "scriptprofile", "readtos", "readeula", "locale", "textlocale", "audiolocale",
+  ".*password.*", ".*token.*", ".*auth.*", ".*account.*", ".*region.*", "taintlog",
+  "checkaddonversion", "launcherloginname", ".*lastaccepted.*",
+]
+
+# Names that open the door to arbitrary names, other code or the machine, or that build code that
+# runs later. Refused wherever they appear: as a variable, a field or a method name.
+[banned_names]
+_G = "reaches any global by name"
+_ENV = "reaches any global by name"
+getfenv = "reaches any global by name"
+setfenv = "changes what code can see"
+rawget = "reads tables behind the game's back"
+rawset = "writes tables behind the game's back"
+getmetatable = "reaches hidden functions"
+setmetatable = "changes how tables behave"
+loadstring = "runs text as code"
+load = "runs text as code"
+loadfile = "loads code from a file"
+dofile = "loads code from a file"
+require = "loads code"
+module = "loads code"
+debug = "inspects and changes the running program"
+package = "loads code"
+os = "is not part of the game's Lua"
+io = "is not part of the game's Lua"
+coroutine = "can build loops that never end"
+collectgarbage = "is not for scripts"
+newproxy = "is not for scripts"
+gcinfo = "is not for scripts"
+rep = "can build enormous strings"
+dump = "is not for scripts"
+goto = "is not part of the game's Lua"
+RunScript = "runs text as code"
+securecall = "bypasses the game's safety checks"
+hooksecurefunc = "changes the game's own functions"
+forceinsecure = "bypasses the game's safety checks"
+SetScript = "makes code run later by itself"
+HookScript = "makes code run later by itself"
+RegisterEvent = "makes code run later by itself"
+RegisterAllEvents = "makes code run later by itself"
+RegisterUnitEvent = "makes code run later by itself"
+SetAttribute = "changes secure buttons"
+CreateFrame = "creates interface elements that keep running"
+C_Timer = "makes code run later by itself (a timer)"
+
+# Plain Lua and the game's own aliases for it: always fine.
+[free]
+globals = [
+  "print", "select", "type", "tostring", "tonumber", "pairs", "ipairs", "next", "unpack", "assert",
+  "error", "pcall", "format", "random", "abs", "floor", "ceil", "max", "min", "sqrt", "mod",
+  "strsub", "strlen", "strfind", "strlower", "strupper", "strsplit", "strjoin", "strtrim",
+  "strmatch", "strbyte", "strchar", "strreplace", "gsub", "gmatch", "tinsert", "tremove", "wipe",
+  "date", "time", "GetTime", "random", "sin", "cos", "tan", "deg", "rad", "log", "exp",
+]
+namespaces = ["math", "string", "table", "bit", "Enum"]
+output_globals = ["print", "PlaySound", "PlaySoundFile"]
+output_methods = ["AddMessage"]
+# Read-only looking names: free to call as often as wanted.
+query_name = "^(Get|Is|Has|Can|Unit)[A-Za-z0-9_]*$"
+query_member = "^(Get|Is|Has|Can|Find|Does)[A-Za-z0-9_]*$"
+constant = "^[A-Z][A-Z0-9_]+$"  # CONSTANTS and data tables such as RAID_CLASS_COLORS
+
+# Function families, matched against the function's own name (the last part of a dotted name).
+# The first matching entry wins; the reason is shown to the player.
+[[denied]]
+reason = "casts, targets or attacks for you (put a spell in a normal macro line instead)"
+pattern = "^(Cast\\w*|UseAction|Target\\w*|Assist\\w*|Focus\\w*|ClearFocus|ClearTarget|AttackTarget|PetAttack|PetStopAttack|PetFollow|PetPassiveMode|PetDefensiveMode|PetAssistMode|StartAttack|StopAttack|SpellStopCasting|SpellStopTargeting|SpellTargetUnit|SpellTargetItem|SpellCanTargetUnit)$"
+
+[[denied]]
+reason = "sends chat messages or contacts other players"
+pattern = "^(SendChatMessage|SendAddonMessage|SendMail|SendSystemMessage|BNSend\\w*|JoinChannel\\w*|JoinTemporaryChannel|LeaveChannel\\w*|AddFriend|AddIgnore|AddOrDelIgnore|AddOrRemoveFriend|RemoveFriend|DelIgnore|SetFriendNotes|ReplyTell|ChatEdit_\\w+|ChatFrame_Send\\w*)$"
+
+[[denied]]
+reason = "manages your group, guild or trades"
+pattern = "^(Invite\\w*|Uninvite\\w*|LeaveParty|Promote\\w*|Demote\\w*|Kick\\w*|Disband\\w*|ConvertTo\\w+|Guild\\w*|SetGuild\\w*|SetLoot\\w*|InitiateTrade|AcceptTrade|CancelTrade|ClickTradeButton|AddTradeMoney|SetTradeMoney|Join\\w*|Leave\\w*|Queue\\w*|Enter\\w*)$"
+
+[[denied]]
+reason = "moves, uses, sells, buys or destroys items and gold"
+pattern = "^(Use\\w*|Pickup\\w*|Drop\\w*|Equip\\w*|Unequip\\w*|Buy\\w*|Sell\\w*|Take\\w*|Delete\\w*|Destroy\\w*|Split\\w*|Swap\\w*|Sort\\w*|Loot\\w*|ConfirmLoot\\w*|Repair\\w*|DepositGuildBankMoney|WithdrawGuildBankMoney|PostAuction|StartAuction|PlaceAuctionBid|CancelAuction|DoTradeSkill|DoCraft|CraftItem|CloseTradeSkill)$"
+
+[[denied]]
+reason = "accepts or confirms things for you (quests, dialogs, queues)"
+pattern = "^(Accept\\w*|Decline\\w*|Confirm\\w*|Complete\\w*|Abandon\\w*|StaticPopup\\w*|SelectGossip\\w*|SelectActiveQuest|SelectAvailableQuest|GetQuestReward|RespondInstanceLock|Initiate\\w*)$"
+
+[[denied]]
+reason = "moves your character or the camera for you"
+pattern = "^(Move\\w*|Strafe\\w*|Turn\\w*|Jump\\w*|Follow\\w*|Sit\\w*|Ascend\\w*|Descend\\w*|ToggleAutoRun|Mouselook\\w*|CameraOrSelectOrMove\\w*|TurnOrAction\\w*)$"
+
+[[denied]]
+reason = "ends your session or releases your character"
+pattern = "^(Logout|Quit|ForceQuit|CancelLogout|ConsoleExec|RepopMe|ReleaseCorpse|RetrieveCorpse|ResurrectCorpse|ResurrectHasSickness)$"
+
+[[denied]]
+reason = "changes macros, key bindings or add-ons (MacroForge manages those)"
+pattern = "^(CreateMacro|EditMacro|DeleteMacro|SetBinding\\w*|SetOverrideBinding\\w*|SaveBindings|LoadBindings|EnableAddOn|DisableAddOn|EnableAllAddOns|DisableAllAddOns|LoadAddOn|SetCVarBitfield|ResetTestCVars|RegisterCVar)$"

@@ -17,7 +17,7 @@ from .fetch import fetch_all
 from .fsutil import atomic_write_text
 from .icons import load_icons
 from .install import build_addon, create_slots, install
-from .probe import render_report
+from .probe import api_names_text, known_api, render_report
 from .savedvars import load_sv
 from .settings import DEFAULT_ROOT, Settings
 from .spec import load_spec, read_spec
@@ -137,6 +137,9 @@ def cmd_report(settings: Settings, args: argparse.Namespace) -> int:
     report = render_report(probe)
     settings.data.mkdir(exist_ok=True)
     atomic_write_text(settings.data / "probe.json", json.dumps(probe, indent=1))
+    known = known_api(probe)
+    if known:
+        atomic_write_text(settings.data / "api-names.txt", api_names_text(known))
     out = settings.root / "reference" / f"compat-{report.toc}.md"
     out.parent.mkdir(exist_ok=True)
     atomic_write_text(out, report.text)

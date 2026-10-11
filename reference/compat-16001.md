@@ -1,5 +1,5 @@
-# Compatibility report - build 1.60.1 (toc 16001, build 70334)
-_Generated from `/mf probe` at 2026-10-09 16:44:42. Re-run on each client update; results are for this build only._
+# Compatibility report - build 1.60.1 (toc 16001, build 70338)
+_Generated from `/mf probe` at 2026-10-10 17:55:04. Re-run on each client update; results are for this build only._
 
 Control (made-up conditional) gave pos=`Y` neg=`N`.
 
@@ -111,7 +111,7 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | `outdoors` | supported | Y | N | N |
 | `overridebar` | supported | N | Y | N |
 | `party` | supported | N | Y | N |
-| `pet` | supported | N | Y | N |
+| `pet` | supported | Y | N | N |
 | `petbattle` | supported | N | Y | N |
 | `possessbar` | supported | N | Y | N |
 | `pvpcombat` | supported | N | Y | N |
@@ -169,3 +169,6 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | SecureCmdOptionParse | function |
 | UnitFullName | function |
 | hash_SlashCmdList | table |
+
+## Script API
+19469 game functions and objects, 4932 members of 271 C_ namespaces recorded for the script checker.

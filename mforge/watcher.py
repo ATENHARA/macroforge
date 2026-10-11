@@ -15,7 +15,6 @@ import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from typing import Callable
 
@@ -29,8 +28,8 @@ from .install import build_addon, install
 from .savedvars import load_sv
 from .settings import Settings
 from .shots import GIVE_UP_SECONDS, ShotScanner, cleanup, read_request, retry_stuck
-from .spec import (check_removals, describe_changes, diff_specs, load_spec, read_spec,
-                   resolve_spec)
+from .spec import (changed_macros, check_removals, describe_changes, diff_specs, load_spec,
+                   read_spec, resolve_spec)
 from .validate import Request, norm, parse_request, sanitize_reply
 
 log = logging.getLogger("mforge.watcher")
@@ -176,7 +175,8 @@ def remember_class(settings: Settings, req: Request) -> None:
         atomic_write_text(settings.spec, json.dumps(spec, indent=2) + "\n")
 
 
-def _evaluate(settings: Settings, candidate_text: str) -> tuple[dict, int, str]:
+def _evaluate(settings: Settings, candidate_text: str,
+              mode: str = "macro") -> tuple[dict, int, str]:
     """Validate the agent's macros.json against the current one.
 
     Returns the parsed spec, the number of soft warnings (unknown spell names) and a one-line
@@ -190,6 +190,13 @@ def _evaluate(settings: Settings, candidate_text: str) -> tuple[dict, int, str]:
         raise ValidationError("macros.json must be an object with a 'macros' list")
     current = read_spec(settings.spec)
     check_removals(current, candidate)
+    for entry in changed_macros(current, candidate):  # a request may only make what it asked for
+        is_script = entry.get("kind") == "script"
+        if mode == "script" and not is_script:
+            raise ValidationError("a script request may only add or change scripts "
+                                  '(entries with "kind": "script")')
+        if mode != "script" and is_script:
+            raise ValidationError("scripts can only be made with /mf script")
     resolve_spec(candidate, settings, blocked=settings.blocked_commands)
     findings, _verified = check_spec(settings, candidate, agent_mode=True)
     hard = [f"[{name}] {f.text}" for name, f in findings if f.kind != "spell"]
@@ -234,7 +241,11 @@ def publish(settings: Settings, req_id: int, reply: str) -> str:
 def default_runner(settings: Settings) -> Callable:
     """The function that turns a request into macros: the Claude CLI or an OpenAI-style endpoint."""
     if settings.agent_backend == "openai":
-        return partial(llm.run_chat, check=lambda text: _evaluate(settings, text))
+        def run(settings: Settings, req: Request, export: dict | None):
+            """Ask the chat model; its answer is checked for the kind of request it answers."""
+            return llm.run_chat(settings, req, export,
+                                check=lambda text: _evaluate(settings, text, req.mode))
+        return run
     return agent_mod.run_agent
 
 
@@ -270,7 +281,7 @@ def handle_request(settings: Settings, raw: object, export: dict | None, state: 
             result = (runner or default_runner(settings))(settings, req, export)
             usage = result.usage
             reply = agent_mod.extract_reply(result.text)
-            candidate, warnings, summary = _evaluate(settings, result.spec_text)
+            candidate, warnings, summary = _evaluate(settings, result.spec_text, req.mode)
             if candidate != read_spec(settings.spec):
                 atomic_write_text(settings.spec, result.spec_text)
                 changed = True

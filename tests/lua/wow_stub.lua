@@ -173,6 +173,9 @@ function M.new_world(opts)
     function methods.GetScript(self, name) return self.scripts[name] end
     function methods.HookScript(self, name, fn) self.scripts[name] = fn end
     function methods.RegisterEvent(self, name) self.events[name] = true end
+    function methods.Disable(self) self.props.Disabled = true end
+    function methods.Enable(self) self.props.Disabled = false end
+    function methods.IsEnabled(self) return not self.props.Disabled end
     function methods.Show(self) self.shown = true end
     function methods.Hide(self) self.shown = false end
     function methods.SetShown(self, flag) self.shown = flag and true or false end

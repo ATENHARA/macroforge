@@ -13,6 +13,7 @@ from .errors import ValidationError
 MAX_NAME = 16
 MAX_BODY = 255
 MAX_REPLY = 600
+MODES = ("macro", "script")  # what an in-game request asks for
 
 # First name plus optional surname parts: letters, spaces, apostrophes and hyphens only.
 _CHAR_RE = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ '\-]){1,47}$")
@@ -55,6 +56,7 @@ class Request:
     char: str
     cls: str
     level: int
+    mode: str = "macro"
 
 
 def parse_request(raw: object, allowed_classes: frozenset[str] | set[str],
@@ -82,8 +84,11 @@ def parse_request(raw: object, allowed_classes: frozenset[str] | set[str],
     level = raw.get("level")
     if not isinstance(level, int) or isinstance(level, bool) or not 1 <= level <= 100:
         raise ValidationError("request level must be 1..100")
+    mode = raw.get("mode", "macro")
+    if mode not in MODES:
+        raise ValidationError("request mode must be macro or script")
     text = strip_bad_chars(text.strip())[:max_text]
-    return Request(id=req_id, text=text, char=char, cls=cls, level=level)
+    return Request(id=req_id, text=text, char=char, cls=cls, level=level, mode=mode)
 
 
 def clean_macro(name: object, body: object) -> tuple[str, str]:

@@ -25,6 +25,33 @@ local API = {
     "SecureCmdList", "hash_SlashCmdList", "MAX_ACCOUNT_MACROS", "MAX_CHARACTER_MACROS",
 }
 
+-- The functions and objects this game defines, for the script checker (so a script that calls an
+-- invented function is caught before it is installed). Only names the game itself defined are
+-- recorded: issecurevariable is false for anything another addon added, so installed addons never
+-- appear in the result.
+local function scriptApi()
+    local names, members = {}, {}
+    for key, value in pairs(_G) do
+        local kind = type(value)
+        if type(key) == "string" and key:match("^[%a_][%w_]*$") and (kind == "function" or kind == "table") then
+            local ok, secure = pcall(issecurevariable, key)
+            if ok and secure then
+                names[#names + 1] = key
+                if kind == "table" and key:match("^C_") then
+                    local fields = {}
+                    for field, item in pairs(value) do
+                        if type(field) == "string" and type(item) == "function" then fields[#fields + 1] = field end
+                    end
+                    table.sort(fields)
+                    members[key] = fields
+                end
+            end
+        end
+    end
+    table.sort(names)
+    return { names = names, members = members, loadstring = type(loadstring) }
+end
+
 local function parse(opts)
     local ok, action, target = pcall(SecureCmdOptionParse, opts)
     if not ok then return "ERROR" end
@@ -68,12 +95,13 @@ local function runProbe()
     end
 
     for _, name in ipairs(API) do out.api[name] = type(_G[name]) end
+    out.script = scriptApi()
     return out
 end
 
 function MacroForge_Probe()
     MacroForgeProbe = runProbe()
-    print(("|cff66ccffMacroForge:|r probe done (build %s, toc %s): %d slash commands, %d conditionals. /reload to write to disk, then run `python macroforge.py report`."):format(
+    print(("|cff66ccffMacroForge:|r probe done (build %s, toc %s): %d slash commands, %d conditionals, %d game functions for scripts. /reload to write to disk, then run `python macroforge.py report`."):format(
         tostring(MacroForgeProbe.build.version), tostring(MacroForgeProbe.build.toc),
-        #MacroForgeProbe.slash, #CONDITIONALS))
+        #MacroForgeProbe.slash, #CONDITIONALS, #MacroForgeProbe.script.names))
 end

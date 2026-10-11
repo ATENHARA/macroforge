@@ -34,6 +34,14 @@ end
 
 local window
 local lastStatus = "Ready."
+local MODE = {
+    macro = { heading = "Ask for a macro", idle = "Ready.",
+              desc = "Describe what you want in plain English. Your PC builds it and the macro appears "
+                     .. "here automatically, usually within a minute." },
+    script = { heading = "Ask for a script",
+               desc = "Describe a short script, such as \"print my coordinates\". Your PC writes it, "
+                      .. "checks it and adds it as a macro, usually within a minute." },
+}
 
 local function setStatus(msg)
     lastStatus = tostring(msg)
@@ -93,6 +101,20 @@ local function setExpanded(expanded)
     window.expanded = expanded
 end
 
+-- Switch between asking for a macro and asking for a script (remembered between sessions).
+local function setMode(mode)
+    mode = (mode == "script") and "script" or "macro"
+    window.mode = mode
+    settings().mode = mode
+    window.heading:SetText(MODE[mode].heading)
+    window.desc:SetText(MODE[mode].desc)
+    for name, button in pairs(window.modeButtons) do
+        if name == mode then button:Disable() else button:Enable() end  -- the active one looks pressed
+    end
+    MODE.script.idle = core.scriptNote or ""
+    if lastStatus == MODE.macro.idle or lastStatus == MODE.script.idle then setStatus(MODE[mode].idle) end
+end
+
 local function send()
     local text = strtrim(window.edit:GetText())
     if text == "" then
@@ -100,7 +122,7 @@ local function send()
         return
     end
     text = text:gsub("%s+", " ")
-    if core.ask(text) then
+    if core.ask(text, window.mode) then
         window.edit:SetText("")
         window.edit:ClearFocus()
     end
@@ -157,10 +179,17 @@ local function buildWindow()
     if UISpecialFrames then table.insert(UISpecialFrames, "MacroForgeWindow") end  -- Esc closes it
 
     -- Ask for a macro
-    label(frame, "Ask for a macro", "GameFontNormalLarge", 300, LEFT, -34)
-    label(frame, "Describe what you want in plain English. Your PC builds it and the macro appears "
-                 .. "here automatically, usually within a minute.", "GameFontHighlightSmall",
-          WIDTH - 2 * LEFT, LEFT, -58, 34)
+    frame.heading = label(frame, MODE.macro.heading, "GameFontNormalLarge", 190, LEFT, -34)
+    frame.desc = label(frame, MODE.macro.desc, "GameFontHighlightSmall", WIDTH - 2 * LEFT, LEFT, -58, 34)
+    frame.modeButtons = {}
+    for index, mode in ipairs({ "macro", "script" }) do
+        local b = newFrame("Button", nil, frame, "UIPanelButtonTemplate")
+        b:SetSize(72, 22)
+        b:SetPoint("TOPLEFT", frame, "TOPLEFT", WIDTH - LEFT - 150 + (index - 1) * 76, -32)
+        b:SetText(mode == "macro" and "Macro" or "Script")
+        b:SetScript("OnClick", function() setMode(mode) end)
+        frame.modeButtons[mode] = b
+    end
 
     local scroll = newFrame("ScrollFrame", "MacroForgeRequestScroll", frame, "UIPanelScrollFrameTemplate")
     scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", LEFT, -100)
@@ -206,6 +235,7 @@ local function buildWindow()
     frame.advanced = advanced
     addAdvanced(advanced)
     setExpanded(false)
+    setMode(settings().mode)
     frame:Hide()
     return frame
 end

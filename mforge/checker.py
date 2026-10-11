@@ -155,6 +155,8 @@ def check_spec(settings: Settings, spec: dict,
     spell_names: dict[str, set[str]] = {}
     results: list[tuple[str, Finding]] = []
     for macro in spec["macros"]:
+        if macro.get("kind") == "script":
+            continue  # checked by luacheck when the spec is resolved
         scope = macro.get("char", "account")
         cls = classes.get(norm(scope if isinstance(scope, str) else "account"), default_class)
         if cls and cls not in spell_names:

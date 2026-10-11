@@ -6,9 +6,14 @@ from pathlib import Path
 
 from .errors import ValidationError
 from .icons import load_icons, resolve_icon
+from .luacheck import check_script_body
+from .probe import load_known_api
 from .settings import Settings
 from .spells import load_spells
 from .validate import check_blocked, clean_macro, norm
+
+
+KINDS = ("macro", "script")  # an entry may be marked "kind": "script" (a /run macro)
 
 
 def read_spec(path: Path) -> dict:
@@ -39,6 +44,7 @@ def resolve_spec(spec: dict, settings: Settings, blocked: frozenset[str] | None 
     slash commands that must not appear (used for agent-written specs).
     """
     icons, spells = load_icons(settings.data), load_spells(settings.data)
+    known = None  # the game's function list, loaded only if a script needs it
     out: dict = {"account": [], "chars": {}, "remove": {"account": [], "chars": {}}}
     for item in spec.get("remove", []):
         if not isinstance(item, dict) or not isinstance(item.get("name"), str):
@@ -53,7 +59,13 @@ def resolve_spec(spec: dict, settings: Settings, blocked: frozenset[str] | None 
         if not isinstance(entry, dict):
             raise ValidationError("each macro must be an object")
         name, body = clean_macro(entry.get("name"), entry.get("body"))
-        if blocked:
+        kind = entry.get("kind", "macro")
+        if kind not in KINDS:
+            raise ValidationError(f"{name!r}: kind must be macro or script")
+        if kind == "script":  # scripts have their own, stricter checker
+            known = known or load_known_api(settings.data)
+            check_script_body(body, max_actions=settings.script_max_actions, known=known)
+        elif blocked:
             check_blocked(name, body, blocked)
         scope = _scope(entry)
         if (scope, name) in seen:
@@ -61,6 +73,8 @@ def resolve_spec(spec: dict, settings: Settings, blocked: frozenset[str] | None 
         seen.add((scope, name))
         created.add(("account" if scope == "account" else norm(scope), name))
         macro = {"name": name, "icon": resolve_icon(entry.get("icon"), icons, spells), "body": body}
+        if kind == "script":
+            macro["script"] = True
         (out["account"] if scope == "account" else out["chars"].setdefault(scope, [])).append(macro)
     removed = {("account", n) for n in out["remove"]["account"]}
     removed |= {(norm(c), n) for c, names in out["remove"]["chars"].items() for n in names}
@@ -85,10 +99,21 @@ def _key(entry: dict) -> tuple[str, str]:
             str(entry.get("name")))
 
 
+def _state(entry: dict) -> tuple:
+    """What makes a macro entry different from another: its body, icon and kind."""
+    return entry.get("body"), entry.get("icon"), entry.get("kind")
+
+
 def _macro_map(spec: dict) -> dict[tuple[str, str], tuple]:
-    """``{(scope, name): (body, icon)}`` for every macro entry of a parsed spec."""
-    return {_key(m): (m.get("body"), m.get("icon")) for m in spec.get("macros", [])
-            if isinstance(m, dict)}
+    """``{(scope, name): (body, icon, kind)}`` for every macro entry of a parsed spec."""
+    return {_key(m): _state(m) for m in spec.get("macros", []) if isinstance(m, dict)}
+
+
+def changed_macros(old: dict, new: dict) -> list[dict]:
+    """The entries of ``new`` that were added or edited compared with ``old``."""
+    before = _macro_map(old)
+    return [m for m in new.get("macros", []) if isinstance(m, dict)
+            and before.get(_key(m)) != _state(m)]
 
 
 def _remove_set(spec: dict) -> set[tuple[str, str]]:

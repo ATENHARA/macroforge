@@ -22,10 +22,10 @@ def lua_str(text: str) -> str:
 
 
 def lua_list(entries: list[dict], indent: str = "    ") -> str:
-    """One ``{ name = ..., icon = ..., body = ... },`` row per macro."""
+    """One ``{ name = ..., icon = ..., body = ... },`` row per macro (plus ``script = true``)."""
     return "\n".join(
         f'{indent}{{ name = {lua_str(m["name"])}, icon = {int(m["icon"])}, '
-        f'body = {lua_str(m["body"])} }},'
+        f'body = {lua_str(m["body"])}{", script = true" if m.get("script") else ""} }},'
         for m in entries)
 
 

@@ -22,6 +22,7 @@ from string import Template
 from .assets import read_text
 from .errors import AgentError, ConfigError, MacroForgeError
 from .fsutil import atomic_write_text, system_exe, which_absolute
+from .luacheck import rules_summary
 from .settings import Settings
 from .spells import class_spells, pet_abilities
 from .validate import Request
@@ -134,14 +135,24 @@ def prepare_workspace(settings: Settings, req: Request) -> Path:
     runs.mkdir(parents=True, exist_ok=True)
     workspace = Path(tempfile.mkdtemp(prefix=f"r{req.id}-", dir=runs))
     shutil.copy2(settings.spec, workspace / "macros.json")
-    if settings.agent_context_file or settings.context_file.exists():
-        (workspace / "agent-brief.md").write_text(read_context(settings), encoding="utf-8")
-    table = ensure_spell_table(settings, req.cls)
-    if table and table.exists():
-        shutil.copy2(table, workspace / "spells.json")
-    pets = ensure_pet_table(settings)
-    if pets and pets.exists():
-        shutil.copy2(pets, workspace / "pets.json")
+    if req.mode == "script":
+        (workspace / "script-brief.md").write_text(read_context(settings, "script"),
+                                                   encoding="utf-8")
+        examples = settings.root / "reference" / "script-examples.md"
+        if examples.exists():
+            shutil.copy2(examples, workspace / "script-examples.md")
+        names = settings.data / "api-names.txt"
+        if names.exists():
+            shutil.copy2(names, workspace / "api-names.txt")
+    else:
+        if settings.agent_context_file or settings.context_file.exists():
+            (workspace / "agent-brief.md").write_text(read_context(settings), encoding="utf-8")
+        table = ensure_spell_table(settings, req.cls)
+        if table and table.exists():
+            shutil.copy2(table, workspace / "spells.json")
+        pets = ensure_pet_table(settings)
+        if pets and pets.exists():
+            shutil.copy2(pets, workspace / "pets.json")
     icons = settings.data / "icons.csv"
     if icons.exists():
         shutil.copy2(icons, workspace / "icons.csv")
@@ -155,15 +166,17 @@ def build_prompt(req: Request, export: dict | None) -> str:
                      and not s.get("passive") and isinstance(s.get("name"), str)})
     pet = export.get("pet") if isinstance(export.get("pet"), dict) else None
     lines = [f"Character: {req.char} (class {req.cls}, level {req.level})."]
+    if req.mode == "script":
+        lines.append('Request type: script (a /run script, entry kind "script").')
     if pet:
         lines.append(f"Current pet: family {pet.get('family')}, abilities {pet.get('actions')}.")
     lines.append("Known spells: " + ", ".join(spells) if spells else "Known spells: unavailable.")
     return "\n".join(lines) + f"\n\nPlayer request:\n{req.text}\n"
 
 
-def read_context(settings: Settings) -> str:
-    """The rules file the AI reads: ``agent_context_file`` if configured, else the bundled brief."""
-    path = settings.context_file
+def read_context(settings: Settings, mode: str = "macro") -> str:
+    """The rules file the AI reads: the configured one, else the bundled macro or script brief."""
+    path = settings.script_context if mode == "script" else settings.context_file
     try:
         if path.stat().st_size > MAX_CONTEXT_BYTES:
             raise ConfigError(f"{path} is too large to be a context file")
@@ -174,18 +187,21 @@ def read_context(settings: Settings) -> str:
         raise ConfigError(f"cannot read context file {path}: {exc}") from None
 
 
-def system_prompt(settings: Settings) -> str:
-    """The agent's rules, from ``resources/prompt.md``."""
+def system_prompt(settings: Settings, mode: str = "macro") -> str:
+    """The agent's rules, from ``resources/prompt.md`` (or ``prompt_script.md`` for scripts)."""
+    if mode == "script":
+        return Template(read_text("prompt_script.md")).safe_substitute(
+            rules=rules_summary(max_actions=settings.script_max_actions))
     blocked = ", ".join("/" + c for c in sorted(settings.blocked_commands))
     return Template(read_text("prompt.md")).safe_substitute(blocked=blocked)
 
 
-def build_command(settings: Settings, claude: str) -> list[str]:
+def build_command(settings: Settings, claude: str, mode: str = "macro") -> list[str]:
     """Command line for one headless run (the prompt itself goes on stdin)."""
     cmd = [claude, "-p", "--output-format", "json", "--restricted",
            "--tools", "Read,Glob,Grep,Edit", "--permission-mode", "acceptEdits",
            "--no-session-persistence", "--strict-mcp-config", "--disable-slash-commands",
-           "--append-system-prompt", system_prompt(settings)]
+           "--append-system-prompt", system_prompt(settings, mode)]
     if settings.agent_model:
         cmd += ["--model", settings.agent_model]
     if settings.agent_max_budget_usd:
@@ -236,7 +252,7 @@ def run_agent(settings: Settings, req: Request, export: dict | None,
     """
     workspace = prepare_workspace(settings, req)
     try:
-        cmd = build_command(settings, find_claude(settings))
+        cmd = build_command(settings, find_claude(settings), req.mode)
         returncode, out, err = runner(cmd, build_prompt(req, export), workspace, agent_env(),
                                       settings.agent_timeout_seconds)
         if len(out) > MAX_OUTPUT_BYTES:

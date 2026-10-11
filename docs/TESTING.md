@@ -23,6 +23,11 @@ Only the standard library is used (the Lua tests also need LuaJIT, below).
 | `test_llm` | the OpenAI-style backend against a fake chat server on this PC: prompt contents, JSON answers and repair retries, merge rules, HTTP errors, timeouts, redirects, key handling and redaction, settings validation, `llm-test` |
 | `test_fetch_startup_cli` | downloads from a local server (oversize, wrong content, hostile redirect), the startup launcher, command-line smoke tests |
 | `test_review_findings` | one regression test per finding of the independent security review |
+| `test_luacheck` | the Lua lexer, parser and script checker: accepted and refused scripts, bypass attempts, a seeded fuzz test, parity with LuaJIT's own compiler |
+| `test_script_mode` | request mode end to end: payload, validation, the two-way gate in the watcher, spec entries, replies |
+| `test_script_prompts` | what the AI is told for scripts (both backends), workspace files, context-file setting |
+| `test_script_examples` | every vetted example fits a macro, passes the checker and runs against a fake game under LuaJIT |
+| `test_script_probe` | the game's function list from the probe: loading, report counts, checking against it |
 | `test_lua_addon` | the Lua addon against a fake WoW API, and the Lua 5.1 syntax scan |
 | `test_style` | line length, docstrings, unused imports, no `SystemExit` or import-time I/O in the library |
 | `test_privacy` | no emails, Windows user paths, account folder names or other personal details in tracked files (plus a private list in `.git/pii-patterns.txt`, see `AGENTS.md`) |
@@ -77,7 +82,12 @@ this after changing the addon (`addon/MacroForge/*.lua`) and after a client upda
 5. **Window:** left-click opens the simple view, right-click opens it with Advanced showing, the button
    drags around the minimap, Esc closes the window, "Show minimap button" and `/mf button` hide and show
    it. Look for overlapping text and cut-off buttons.
-6. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
+6. **Scripts:** `/mf probe`, `/reload`, `python macroforge.py report` (the report shows the script API
+   counts). `/mf script print my coordinates` (or the Script button): the script appears, the one-time
+   notice explains Blizzard's warning, the warning appears on the first press (note its exact wording), and
+   the macro prints the coordinates. Press each example in `reference/script-examples.md` once; any that
+   errors in game must be fixed or removed there.
+7. **Hostile text:** put `|cffff0000RED|r |Hitem:19019|h[X]|h` into `data/replies.json` as a reply, `build`,
    `install`, `/mf live`: the chat shows the text with the pipes visible, no color and no link.
 
 Before sharing a new version, also try a **fresh install** on another PC (the real download and the Windows

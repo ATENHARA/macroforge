@@ -8,7 +8,6 @@ import shutil
 import threading
 import time
 import unittest
-from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest import mock
 
@@ -172,7 +171,9 @@ class HappyPathTests(LlmCase):
 
     def test_default_runner_follows_the_backend(self):
         self.assertIs(watcher.default_runner(self.settings), agent.run_agent)
-        self.assertIsInstance(watcher.default_runner(self.cfg), partial)
+        runner = watcher.default_runner(self.cfg)
+        self.assertTrue(callable(runner))
+        self.assertIsNot(runner, agent.run_agent)
 
 
 class PromptTests(LlmCase):

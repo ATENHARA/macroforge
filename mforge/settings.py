@@ -28,7 +28,7 @@ KNOWN_KEYS = {
     "max_request_chars", "blocked_commands", "fetch_allowed_hosts", "fetch_allow_http",
     "fetch_wago_url", "fetch_listfile_api", "delete_request_shots",
     "agent_backend", "llm_base_url", "llm_api_key_env", "llm_max_tokens", "llm_json_mode",
-    "llm_retries", "agent_context_file",
+    "llm_retries", "agent_context_file", "script_context_file", "script_max_actions",
 }
 BACKENDS = ("claude", "openai")  # "openai" = any OpenAI-style chat endpoint (GPT, Ollama, ...)
 DEFAULT_LLM_URL = "https://api.openai.com/v1"
@@ -134,6 +134,8 @@ class Settings:
     llm_json_mode: bool = True
     llm_retries: int = 1
     agent_context_file: str = ""
+    script_context_file: str = ""
+    script_max_actions: int = 1
 
     # -- derived paths ---------------------------------------------------------------------
     @property
@@ -142,6 +144,13 @@ class Settings:
         if self.agent_context_file:
             return Path(self.root, self.agent_context_file)
         return self.root / "reference" / "agent-brief.md"
+
+    @property
+    def script_context(self) -> Path:
+        """The rules file for script requests: ``script_context_file`` or the bundled brief."""
+        if self.script_context_file:
+            return Path(self.root, self.script_context_file)
+        return self.root / "reference" / "script-brief.md"
 
     @property
     def data(self) -> Path:
@@ -255,4 +264,6 @@ class Settings:
             llm_json_mode=_typed(cfg, "llm_json_mode", True, bool),
             llm_retries=_ranged(cfg, "llm_retries", 1, 0, 3),
             agent_context_file=_typed(cfg, "agent_context_file", "", str),
+            script_context_file=_typed(cfg, "script_context_file", "", str),
+            script_max_actions=_ranged(cfg, "script_max_actions", 1, 1, 5),
         )

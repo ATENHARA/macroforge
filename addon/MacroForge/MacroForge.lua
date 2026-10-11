@@ -30,6 +30,7 @@ local function validMacro(m)
         and type(m.name) == "string" and #m.name >= 1 and #m.name <= 64
         and type(m.body) == "string" and #m.body <= 255
         and type(m.icon) == "number" and m.icon == math.floor(m.icon)
+        and (m.script == nil or type(m.script) == "boolean")
 end
 
 -- "Testy Mage", "Testy-Mage" and "testymage" all compare equal.
@@ -78,6 +79,43 @@ end
 -- (comparing raw bodies made every macro look "changed" on every login).
 local function trim(s) return (tostring(s or ""):gsub("%s+$", "")) end
 
+-- Script macros (script = true in the data) hold `/run` lines of Lua. The Lua is compiled here,
+-- never run, so a syntax error is reported now instead of when the macro is pressed.
+local function scriptSyntaxError(body)
+    for line in tostring(body):gmatch("[^\n]+") do
+        local code = line:match("^%s*/run%s+(%S.*)$")
+        if not code then return "every line of a script must start with /run" end
+        if type(loadstring) == "function" then
+            local fn, err = loadstring(code)
+            if not fn then return err end
+        end
+    end
+end
+
+-- Blizzard shows its own warning the first time a custom script runs. Say so once, so it does not
+-- come as a surprise, and say what MacroForge does about it (and does not promise).
+MacroForgeCore.scriptNote = "Scripts run once when you press the macro. The first time, Blizzard "
+    .. "shows its own custom-script warning; that is normal."
+
+-- Blizzard remembers that you accepted its warning in the allowDangerousScripts setting ("1").
+local function warningAccepted()
+    local ok, value = pcall(GetCVar, "allowDangerousScripts")
+    return ok and tostring(value) == "1"
+end
+
+local function scriptNotice()
+    if warningAccepted() then return end  -- Blizzard's warning will not appear, nothing to explain
+    if type(MacroForgeUI) ~= "table" then MacroForgeUI = {} end
+    if MacroForgeUI.scriptNoticeSeen then return end
+    MacroForgeUI.scriptNoticeSeen = true
+    say("Script macro installed. The first time you press a script macro, Blizzard shows a warning "
+        .. "(\"You are attempting to run a custom script...\").")
+    say("That warning is Blizzard's and appears for every custom script, whoever wrote it. MacroForge "
+        .. "checks each script before installing it and refuses anything that sends chat, touches "
+        .. "items, gold, mail, trades or guilds, or repeats actions by itself. Read what a script "
+        .. "does before you accept the warning.")
+end
+
 local function applyOne(m, perChar, stats, trigger)
     local account, char = scan()
     local found = (perChar and char or account)[m.name]
@@ -94,6 +132,7 @@ local function applyOne(m, perChar, stats, trigger)
             while #MacroForgeLog > 20 do table.remove(MacroForgeLog, 1) end
             EditMacro(idx, m.name, m.icon, m.body)
             stats.updated = stats.updated + 1
+            if m.script then stats.scripts = stats.scripts + 1 end
         end
         for k = #found, 2, -1 do  -- delete extras, highest index first
             DeleteMacro(found[k])
@@ -101,7 +140,9 @@ local function applyOne(m, perChar, stats, trigger)
         end
     else
         local ok = pcall(CreateMacro, m.name, m.icon, m.body, perChar)
-        if ok then stats.created = stats.created + 1
+        if ok then
+            stats.created = stats.created + 1
+            if m.script then stats.scripts = stats.scripts + 1 end
         else stats.failed = stats.failed + 1; say("could not create '" .. plain(m.name) .. "' (slots full?)") end
     end
 end
@@ -112,6 +153,14 @@ local function applySafely(m, perChar, stats, trigger)
         stats.failed = stats.failed + 1
         say("skipped a malformed macro entry")
         return
+    end
+    if m.script then
+        local problem = scriptSyntaxError(m.body)
+        if problem then
+            stats.failed = stats.failed + 1
+            say("script '" .. plain(m.name) .. "' was not installed: " .. plain(problem))
+            return
+        end
     end
     local ok, err = pcall(applyOne, m, perChar, stats, trigger)
     if not ok then
@@ -173,7 +222,7 @@ local function applyAll(quiet, data, how)
     if type(data.rev) == "number" then appliedRev = data.rev end
     MacroForge_ShowReplies(data)
     local trigger = how or (quiet and "login" or "manual")
-    local stats = { created = 0, updated = 0, removed = 0, failed = 0 }
+    local stats = { created = 0, updated = 0, removed = 0, failed = 0, scripts = 0 }
     local keepAccount, keepChar = {}, {}
     for _, m in ipairs(list(data.account)) do
         applySafely(m, false, stats, trigger)
@@ -198,6 +247,7 @@ local function applyAll(quiet, data, how)
         say(("%d created, %d updated, %d removed, %d failed"):format(
             stats.created, stats.updated, stats.removed, stats.failed))
     end
+    if stats.scripts > 0 then scriptNotice() end
 end
 
 -- Dump the spellbook, macro table and identity to SavedVariables (written to disk
@@ -308,6 +358,7 @@ end
 -- Only your own typed text is sent (500 characters at most).
 local FIRST_CHECK, CHECK_EVERY, GIVE_UP = 12, 10, 180
 local pollId = 0  -- the request being waited for; a newer request replaces an older poll
+local pollWord = "macro"  -- what the pending request asked for: "macro" or "script"
 
 local function fullName()
     local n, s = UnitName("player")
@@ -352,7 +403,7 @@ local function pollForReply(id, waited, told)
         local state = replyState(data, id)
         if state == "final" then
             applyAll(false, data, "live")
-            status("Done. Your macro is ready (details in the chat window).")
+            status("Done. Your " .. pollWord .. " is ready (details in the chat window).")
             ping()
             return
         end
@@ -367,9 +418,15 @@ local function pollForReply(id, waited, told)
     end)
 end
 
-local function askRequest(text)
+local function askRequest(text, mode)
+    mode = (mode == "script") and "script" or "macro"
+    pollWord = mode
     text = strtrim(text or "")
-    if text == "" then note("usage: /mf ask <what you want, e.g. a macro that casts X on mouseover>"); return false end
+    if text == "" then
+        note(mode == "script" and "usage: /mf script <what the script should do, e.g. print my coordinates>"
+             or "usage: /mf ask <what you want, e.g. a macro that casts X on mouseover>")
+        return false
+    end
     if #text > 500 then note("request too long (max 500 characters)"); return false end
     if type(MacroForgeRequests) ~= "table" then MacroForgeRequests = {} end
     local id = time() * 100
@@ -380,20 +437,23 @@ local function askRequest(text)
     local class = select(2, UnitClass("player"))
     local char = fullName()
     table.insert(MacroForgeRequests, { id = id, text = text, char = char, class = class,
-                                       level = UnitLevel("player") })
+                                       level = UnitLevel("player"), mode = mode })
     while #MacroForgeRequests > 10 do table.remove(MacroForgeRequests, 1) end
     exportAll(true)  -- fresh spellbook + pet, written to disk at the next reload/logout
-    local payload = table.concat({ "MFREQ", id, UnitLevel("player"), class, oneLine(char), oneLine(text) }, "\t")
+    local fields = { "MFREQ", id, UnitLevel("player"), class, oneLine(char), oneLine(text) }
+    if mode == "script" then fields[#fields + 1] = "script" end  -- macro requests keep the old format
+    local payload = table.concat(fields, "\t")
     pollId = id
     MacroForgeStrip.Send(id, payload, function(ok, err)
         if not ok then
             note("could not take the screenshot: " .. tostring(err))
             return
         end
-        note("Request sent. Your macro will be added automatically when it's ready.")
+        note("Request sent. Your " .. mode .. " will be added automatically when it's ready.")
         pollForReply(id, 0)
     end)
-    note("Sending your request (colored squares flash briefly in the top-left corner)...")
+    note("Sending your " .. (mode == "script" and "script request" or "request")
+         .. " (colored squares flash briefly in the top-left corner)...")
     return true
 end
 
@@ -419,7 +479,9 @@ end
 SLASH_MACROFORGE1 = "/mf"
 SlashCmdList.MACROFORGE = function(arg)
     local askText = arg:match("^ask%s+(.*)$") or (arg == "ask" and "")
+    local scriptText = arg:match("^script%s+(.*)$") or (arg == "script" and "")
     if askText then askRequest(askText)
+    elseif scriptText then askRequest(scriptText, "script")
     elseif arg == "export" then exportAll()
     elseif arg == "probe" then MacroForge_Probe()
     elseif arg == "petcheck" then petCheck()

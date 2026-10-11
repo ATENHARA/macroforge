@@ -1,10 +1,13 @@
 """Turn the results of the in-game ``/mf probe`` into a compatibility report."""
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 
 from .assets import load_toml
 from .errors import ValidationError
+from .luacheck import ApiKnowledge
 
 
 def wiki_commands() -> set[str]:
@@ -51,6 +54,38 @@ class Report:
     total: int
 
 
+def known_api(probe: object) -> ApiKnowledge | None:
+    """The game's own function names from probe data, or None if the probe did not record them."""
+    script = probe.get("script") if isinstance(probe, dict) else None
+    if not isinstance(script, dict):
+        return None
+    names, members = script.get("names"), script.get("members")
+    if not isinstance(names, list) or not names or not isinstance(members, dict):
+        return None
+    try:
+        return ApiKnowledge(
+            names=frozenset(n for n in names if isinstance(n, str)),
+            members={str(k): frozenset(str(f) for f in v) for k, v in members.items()
+                     if isinstance(v, list)})
+    except TypeError:
+        return None
+
+
+def load_known_api(data: Path) -> ApiKnowledge | None:
+    """The game's function names from the cached ``probe.json`` (None if absent or unusable)."""
+    try:
+        return known_api(json.loads((data / "probe.json").read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return None
+
+
+def api_names_text(known: ApiKnowledge) -> str:
+    """One name per line (``C_Map.GetBestMapForUnit`` for members) for the AI to search."""
+    lines = sorted(known.names - set(known.members))
+    lines += sorted(f"{ns}.{field}" for ns, fields in known.members.items() for field in fields)
+    return "\n".join(lines) + "\n"
+
+
 def render_report(probe: dict) -> Report:
     """Build ``reference/compat-<toc>.md`` from the ``MacroForgeProbe`` saved variable."""
     try:
@@ -86,6 +121,12 @@ def render_report(probe: dict) -> Report:
     lines += [f"| @{unit} | {result} |" for unit, result in sorted(targets.items())]
     lines += ["", "## API presence", "| name | type |", "|---|---|"]
     lines += [f"| {name} | {kind} |" for name, kind in sorted(api.items())]
+    known = known_api(probe)
+    if known:  # only counts: the names go to data/api-names.txt, not into a committed report
+        lines += ["", "## Script API",
+                  f"{len(known.names)} game functions and objects, "
+                  f"{sum(len(f) for f in known.members.values())} members of "
+                  f"{len(known.members)} C_ namespaces recorded for the script checker."]
     supported = sum(classify(c, control) == "supported" for c in conditionals.values())
     return Report(toc=toc, text="\n".join(lines) + "\n", slash_count=len(slash),
                   supported=supported, total=len(conditionals))
