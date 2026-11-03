@@ -12,7 +12,7 @@ copy-pasting and no reload. Built for **WoW Forever**; works for any class.
 Pure Python standard library, nothing to pip install.
 
 ## Requirements
-- Windows, WoW Forever installed (the beta, or the live game once it launches).
+- Windows, WoW Forever installed.
 - **Python 3.11 or newer** (`setup.cmd` tells you where to get it if it is missing).
 - Optional, only for the in-game request feature: an AI to answer it: the **Claude Code** command-line
   program (signed in), or an OpenAI-style API key, or a model on your PC. See
@@ -74,6 +74,8 @@ Works for any class. Your `macros.json` is personal and untracked; the first run
 | `build` | `macros.json` -> `build/MacroForge/`, then check the macros |
 | `install` | copy the built addon into the game's AddOns folder and refresh the slots |
 | `check` | validate commands, conditionals and spell names |
+| `status` | read-only: is anything out of date (game data, probe, installed addon, watcher, ...) and what to do |
+| `update [--check]` | get the newest MacroForge (or only say whether there is one); keeps your config, macros and data |
 | `icon <words>` / `spell <name>` | look up icon ids |
 | `spells <class> [--max-level N] [--find text]` | every spell a class can learn |
 | `report` | turn `/mf probe` results into `reference/compat-<toc>.md` |
@@ -191,9 +193,9 @@ with its cost. Details: [docs/SECURITY.md](docs/SECURITY.md).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `wow_dir` | `C:\Program Files (x86)\World of Warcraft\_classic_beta_` | the client folder containing `Interface` and `WTF` |
+| `wow_dir` | `C:\Program Files (x86)\World of Warcraft\_forever_` | the client folder containing `Interface` and `WTF` |
 | `account` | empty = every account | pin one account: its folder name under `WTF\Account` in the game folder (a long number followed by `#1`, not your login). The addon itself always works for all accounts; this only limits whose saved data (your spell list) is read |
-| `product` | derived from `wow_dir` | product name in `.build.info` (`wow_classic_beta`) |
+| `product` | derived from `wow_dir` | product code in `.build.info` (`wowf` for `_forever_`, `wow_classic` for `_classic_`) |
 | `max_account_macros`, `max_char_macros` | 120, 18 | macro slot limits |
 | `claude_path` | auto | full path of `claude.exe` (executed as-is; must exist) |
 | `agent_backend` | `claude` | `claude`, or `openai` for any OpenAI-style endpoint (GPT, Ollama, LM Studio, ...) |
@@ -209,7 +211,17 @@ with its cost. Details: [docs/SECURITY.md](docs/SECURITY.md).
 | `fetch_allowed_hosts` | wago.tools, api.github.com, github.com, githubusercontent.com | hosts `fetch` may contact |
 | `fetch_allow_http`, `fetch_wago_url`, `fetch_listfile_api` | https defaults | advanced; used by the tests |
 
+## Updating MacroForge
+Double-click `update.cmd` (or run `python macroforge.py update`; `--check` only says whether there is a new
+version). Nothing updates by itself. A git clone is updated with `git pull`; any other copy downloads the newest
+version from GitHub, checks it and swaps the program files in. Your `config.json`, `macros.json` and `data`
+folder are never touched, and the old program files are kept in `data/backups/`. Afterwards it rebuilds and
+reinstalls the addon and runs `status`; then `/reload` in game, and restart the watcher if you use it.
+(Copies older than 1.5.0 have no `update` command: download MacroForge once more and copy those three things over.)
+
 ## After a client update
+`python macroforge.py status` checks everything below (and more) and says what to do. In short:
+
 ```
 python macroforge.py fetch            # new game data (add --no-icons to skip the big icon list)
 python macroforge.py build
@@ -248,6 +260,6 @@ for sale or commercial use. Credits and the wiki-derived reference files: [NOTIC
   [docs/TESTING.md](docs/TESTING.md)); only the real game shows how the real client behaves, so the
   in-game checklist is still needed after addon changes and client updates.
 - Talents are not in the spell table (only trainable class spells).
-- The defaults point at the beta client folder (`_classic_beta_`). `setup` finds other client folders
-  by itself, and the defaults will be updated when the game launches.
+- The defaults point at the live client folder (`_forever_`, product `wowf`). `setup` finds other client
+  folders by itself; set `wow_dir` (and, for an unusual folder, `product`) to use another one.
 - Forever's real macro limits are inferred (120/18) from where character macros start.

@@ -69,6 +69,15 @@ The window's "Save for all characters" choice travels in the request and is enfo
 the model: every *new* macro in an answer is placed account-wide or on the requesting character as chosen, and
 existing macros are never moved.
 
+### Updating MacroForge
+`update` runs only when the player starts it. A git clone uses `git pull --ff-only` and stops if MacroForge's own
+files were changed by hand. Any other copy downloads the repository zip from GitHub over https (the same host
+allowlist and redirect checks as `fetch`), refuses paths outside the folder, links, more than one top folder,
+oversized downloads and anything that is not MacroForge, then swaps the program files in; `config.json`,
+`macros.json`, `data/`, `build/` and the data pack are never taken from the download or touched. The old program
+files go to `data/backups/`; if a file cannot be replaced, everything moved so far is put back. The download is
+not signed: it is as trustworthy as the GitHub repository it comes from.
+
 ### Bulk changes
 A request that would remove or edit `confirm_changes_at` (default 3) or more macros at once is refused unless
 the player's own request contains the word CONFIRM. The text comes from the player, not the model, so the model

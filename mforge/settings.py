@@ -18,9 +18,20 @@ from .errors import ConfigError
 log = logging.getLogger(__name__)
 
 DEFAULT_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_WOW_DIR = r"C:\Program Files (x86)\World of Warcraft\_classic_beta_"
+DEFAULT_WOW_DIR = r"C:\Program Files (x86)\World of Warcraft\_forever_"
+# The product code Blizzard's .build.info uses for a client folder, where it is not simply
+# "wow_<folder>" (_classic_ -> wow_classic and _classic_beta_ -> wow_classic_beta follow the rule).
+FOLDER_PRODUCTS = {"_forever_": "wowf", "_retail_": "wow", "_ptr_": "wowt", "_beta_": "wow_beta"}
+
+
+def product_for(folder_name: str) -> str:
+    """The ``.build.info`` product code of a client folder such as ``_forever_``."""
+    return FOLDER_PRODUCTS.get(folder_name, "wow_" + folder_name.strip("_"))
 DEFAULT_WAGO_URL = "https://wago.tools/db2/{table}/csv?build={build}"
 DEFAULT_LISTFILE_API = "https://api.github.com/repos/wowdev/wow-listfile/releases/latest"
+DEFAULT_UPDATE_VERSION_URL = ("https://raw.githubusercontent.com/ATENHARA/macroforge/main/mforge/"
+                              "__init__.py")
+DEFAULT_UPDATE_ZIP_URL = "https://github.com/ATENHARA/macroforge/archive/refs/heads/main.zip"
 
 KNOWN_KEYS = {
     "wow_dir", "account", "product", "max_account_macros", "max_char_macros", "claude_path",
@@ -29,7 +40,7 @@ KNOWN_KEYS = {
     "fetch_wago_url", "fetch_listfile_api", "delete_request_shots",
     "agent_backend", "llm_base_url", "llm_api_key_env", "llm_max_tokens", "llm_json_mode",
     "llm_retries", "agent_context_file", "script_context_file", "script_max_actions",
-    "confirm_changes_at",
+    "confirm_changes_at", "update_version_url", "update_zip_url",
 }
 BACKENDS = ("claude", "openai")  # "openai" = any OpenAI-style chat endpoint (GPT, Ollama, ...)
 DEFAULT_LLM_URL = "https://api.openai.com/v1"
@@ -139,6 +150,8 @@ class Settings:
     script_context_file: str = ""
     script_max_actions: int = 1
     confirm_changes_at: int = 3  # macros one request may remove or edit before CONFIRM is needed
+    update_version_url: str = DEFAULT_UPDATE_VERSION_URL
+    update_zip_url: str = DEFAULT_UPDATE_ZIP_URL
 
     # -- derived paths ---------------------------------------------------------------------
     @property
@@ -244,7 +257,7 @@ class Settings:
             root=root,
             wow_dir=wow_dir,
             account=_typed(cfg, "account", "", str),  # empty = every account folder
-            product=_typed(cfg, "product", "", str) or "wow_" + wow_dir.name.strip("_"),
+            product=_typed(cfg, "product", "", str) or product_for(wow_dir.name),
             max_account_macros=_typed(cfg, "max_account_macros", 120, int),
             max_char_macros=_typed(cfg, "max_char_macros", 18, int),
             claude_path=_typed(cfg, "claude_path", "", str),
@@ -270,4 +283,6 @@ class Settings:
             script_context_file=_typed(cfg, "script_context_file", "", str),
             script_max_actions=_ranged(cfg, "script_max_actions", 1, 1, 5),
             confirm_changes_at=_ranged(cfg, "confirm_changes_at", 3, 1, 100),
+            update_version_url=_typed(cfg, "update_version_url", DEFAULT_UPDATE_VERSION_URL, str),
+            update_zip_url=_typed(cfg, "update_zip_url", DEFAULT_UPDATE_ZIP_URL, str),
         )

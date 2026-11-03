@@ -49,8 +49,8 @@ class FindingTheGameTests(SetupCase):
         (self.sb.wow_root / "_retail_").mkdir()  # no Interface or WTF inside
         (self.sb.wow_root / "_classic_").mkdir()
         (self.sb.wow_root / "_classic_" / "Interface").mkdir()
-        (self.sb.wow_root / "_forever_").mkdir()  # a future flavor name is found too
-        (self.sb.wow_root / "_forever_" / "WTF").mkdir()
+        (self.sb.wow_root / "_classic_beta_").mkdir()  # an old flavor folder is found too
+        (self.sb.wow_root / "_classic_beta_" / "WTF").mkdir()
         (self.sb.wow_root / "NotAFlavor").mkdir()
         (self.sb.wow_root / "NotAFlavor" / "Interface").mkdir()
         names = [g.path.name for g in setup_mod.find_games([self.sb.wow_root])]
@@ -101,7 +101,7 @@ class WizardTests(SetupCase):
         (self.sb.wow_root / "_classic_" / "Interface").mkdir()
         self.answers = ["x", "9", "2"]  # junk, out of range, then the second entry
         chosen = self.wizard().pick_game(None)
-        self.assertEqual(chosen.name, "_classic_beta_")
+        self.assertEqual(chosen.name, "_forever_")
         self.assertIn("Please type one of the numbers", self.text())
 
     def test_two_accounts_ask_which_one(self):

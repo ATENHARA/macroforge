@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from typing import Callable
 
-from . import agent, llm, setup, shotcheck, startup, watcher
+from . import agent, llm, setup, shotcheck, startup, status, update, watcher
 from .cache import stage_caches
 from .checker import run_checks
 from .errors import MacroForgeError, ValidationError
@@ -103,6 +103,18 @@ def cmd_slots(settings: Settings, args: argparse.Namespace) -> int:
     print(f"{args.count} slot addons in {addons}\n"
           "Fully restart WoW once so the client discovers them, then use /mf live.")
     return 0
+
+
+def cmd_status(settings: Settings, args: argparse.Namespace) -> int:
+    """Print whether anything needs updating (read-only); exit code 1 if something does."""
+    results = status.gather(settings)
+    print(status.render(results))
+    return 0 if all(r.ok for r in results) else 1
+
+
+def cmd_update(settings: Settings, args: argparse.Namespace) -> int:
+    """Install the newest MacroForge (or, with --check, only say whether there is one)."""
+    return update.run_update(settings, args.check)
 
 
 def cmd_check(settings: Settings, args: argparse.Namespace) -> int:
@@ -238,6 +250,9 @@ def build_parser() -> argparse.ArgumentParser:
              "create the load-on-demand slot addons for /mf live (restart WoW once after)")
     sp.add_argument("--count", type=int, default=120)
     add("check", cmd_check, "validate macros.json (commands, conditionals, spell names)")
+    sp = add("update", cmd_update, "get the newest MacroForge (keeps your config, macros and data)")
+    sp.add_argument("--check", action="store_true", help="only say whether a newer version exists")
+    add("status", cmd_status, "read-only: is an update needed? (game data, probe, addon, ...)")
     sp = add("cache", cmd_cache,
              "merge macros into macros-cache.txt (game must be closed with --write)")
     sp.add_argument("--write", action="store_true",
@@ -254,7 +269,7 @@ def build_parser() -> argparse.ArgumentParser:
     add("rollback", cmd_rollback, "restore the last backup of macros.json")
     sp = add("setup", cmd_setup, "guided first-time setup (finds the game, installs everything)")
     sp.set_defaults(standalone=True)
-    sp.add_argument("--wow-dir", help="client folder, e.g. C:/Games/WoW/_classic_beta_")
+    sp.add_argument("--wow-dir", help="client folder, e.g. C:/Games/WoW/_forever_")
     sp.add_argument("--account", help="account folder name under WTF/Account")
     sp.add_argument("--yes", action="store_true", help="take the default answer to every question")
     sp.add_argument("--skip-fetch", action="store_true", help="do not download game data")

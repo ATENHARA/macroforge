@@ -19,7 +19,7 @@ from .errors import MacroForgeError, ValidationError
 from .fetch import fetch_all, installed_build
 from .fsutil import atomic_write_text
 from .install import build_addon, check_addons_dir, create_slots, install
-from .settings import DEFAULT_LLM_URL, Settings, account_last_used, validate_llm_url
+from .settings import DEFAULT_LLM_URL, Settings, account_last_used, product_for, validate_llm_url
 from .spec import load_spec
 from .watcher import load_replies
 
@@ -35,7 +35,7 @@ LOCAL_MODEL_WARNING = (
 
 @dataclass(frozen=True)
 class GameFolder:
-    """One client folder (``_classic_beta_`` and friends) inside a World of Warcraft install."""
+    """One client folder (``_forever_`` and friends) inside a World of Warcraft install."""
 
     path: Path
     version: str  # from .build.info, or "" when unknown
@@ -91,12 +91,12 @@ def find_games(roots: list[Path] | None = None) -> list[GameFolder]:
         for child in children:
             name = child.name
             if not (name.startswith("_") and name.endswith("_") and child.is_dir()):
-                continue  # client folders look like _classic_beta_ (the flavor name may change)
+                continue  # client folders look like _forever_ (the flavor name may change)
             if child.resolve() in seen:
                 continue
             if (child / "Interface").is_dir() or (child / "WTF").is_dir():
                 seen.add(child.resolve())
-                games.append(GameFolder(child, versions.get("wow_" + name.strip("_"), "")))
+                games.append(GameFolder(child, versions.get(product_for(name), "")))
     return games
 
 
@@ -188,12 +188,12 @@ class Wizard:
             path = Path(wow_dir)
             if not (path / "Interface").is_dir():
                 raise ValidationError(f"{path} has no Interface folder; is it the client folder "
-                                      "(for example ...\\World of Warcraft\\_classic_beta_)?")
+                                      "(for example ...\\World of Warcraft\\_forever_)?")
             return path
         games = find_games(self.roots)
         if not games:
             typed = self._ask("Could not find World of Warcraft. Paste the client folder "
-                              "(for example C:\\Games\\World of Warcraft\\_classic_beta_): ")
+                              "(for example C:\\Games\\World of Warcraft\\_forever_): ")
             return self.pick_game(typed.strip().strip('"'))
         return games[self.choose("Which game folder should MacroForge use?",
                                  [g.label for g in games])].path

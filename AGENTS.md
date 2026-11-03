@@ -21,6 +21,11 @@ Read `reference/script-brief.md` and `reference/script-examples.md`, write the m
 in `macros.json`, and run `build`: `mforge/luacheck.py` applies the rules in `mforge/resources/script_rules.toml`.
 Never work around a refusal; the denied functions are the safety boundary. Scripts are macros, so 255 bytes.
 
+## When the user asks to update MacroForge
+Run `python macroforge.py update --check`; if there is a newer version, ask before running `update` (it replaces the
+program files, keeps `config.json`, `macros.json` and `data/`). Then run `python macroforge.py status` and work
+through each ACTION, asking the user to do the in-game steps (`/mf probe`, `/reload`, restarting the game).
+
 ## When changing the code
 - Layout: `macroforge.py` is a thin entry point; the library is the `mforge/` package (one job per module;
   `/mf ask` requests arrive as screenshots: `stripcodec.py` decodes them, `shots.py` finds and cleans up

@@ -41,13 +41,15 @@ def installed_build(settings: Settings) -> str:
     except OSError as exc:
         raise ValidationError(f"cannot read {settings.build_info}: {exc}") from exc
     columns = {h.split("!")[0]: i for i, h in enumerate(lines[0].split("|"))} if lines else {}
+    found = []
     for row in lines[1:]:
         fields = row.split("|")
-        if len(fields) > max(columns.get("Product", 0), columns.get("Version", 0)) \
-                and fields[columns["Product"]] == settings.product:
-            return fields[columns["Version"]]
-    raise ValidationError(f"product {settings.product!r} not found in .build.info; "
-                          'set "product" in config.json')
+        if len(fields) > max(columns.get("Product", 0), columns.get("Version", 0)):
+            if fields[columns["Product"]] == settings.product:
+                return fields[columns["Version"]]
+            found.append(fields[columns["Product"]])
+    raise ValidationError(f"product {settings.product!r} not found in .build.info (it lists "
+                          f"{', '.join(found) or 'none'}); set \"product\" in config.json")
 
 
 def check_url(settings: Settings, url: str) -> None:

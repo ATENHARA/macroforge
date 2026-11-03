@@ -62,7 +62,7 @@ class Sandbox:
         self.tmp = Path(tempfile.mkdtemp(prefix="mforge-test-"))
         self.project = self.tmp / "project"
         self.wow_root = self.tmp / "World of Warcraft"
-        self.wow = self.wow_root / "_classic_beta_"
+        self.wow = self.wow_root / "_forever_"
         self.addons = self.wow / "Interface" / "AddOns"
         self.account_dir = self.wow / "WTF" / "Account" / ACCOUNT
         self.saved_vars = self.account_dir / "SavedVariables"
@@ -88,7 +88,7 @@ class Sandbox:
         self.saved_vars.mkdir(parents=True)
         (self.wow_root / ".build.info").write_text(
             "Branch!STRING:0|Active!DEC:1|Build Key!HEX:16|Version!STRING:0|Product!STRING:0\n"
-            f"us|1|abc|{PRODUCT_VERSION}|wow_classic_beta\n", encoding="utf-8")
+            f"us|1|abc|{PRODUCT_VERSION}|wowf\n", encoding="utf-8")
 
     def write_macros(self, spec: dict) -> None:
         (self.project / "macros.json").write_text(json.dumps(spec, indent=2), encoding="utf-8")

@@ -26,6 +26,8 @@ Only the standard library is used (the Lua tests also need LuaJIT, below).
 | `test_luacheck` | the Lua lexer, parser and script checker: accepted and refused scripts, bypass attempts, a seeded fuzz test, parity with LuaJIT's own compiler |
 | `test_luacheck_bypass` | one regression test per script-checker bypass found by the adversarial review, plus the ordinary scripts that must stay allowed, parser parity (`break`, nested `[[`) and the `/run` line rules the addon shares |
 | `test_hardening` | robustness findings of the review: hostile agent or endpoint output, files that are not text, the watcher's catch-all reply, name matching, launcher encoding, linear-time parsing and picture scanning |
+| `test_update` | the player-run update: version check, git route, zip route (paths, links, sizes, a single MacroForge folder), the player's files never touched, backup and rollback |
+| `test_status` | the read-only `status` checks: game data, probe, interface number, installed addon, slots, macros, ideas, script examples, AI and watcher, and that it writes nothing |
 | `test_scope` | the account-wide or this-character choice: request field, prompts, and the PC placing new macros where the player chose |
 | `test_script_mode` | request mode end to end: payload, validation, the two-way gate in the watcher, spec entries, replies |
 | `test_script_prompts` | what the AI is told for scripts (both backends), workspace files, context-file setting |

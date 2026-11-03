@@ -39,7 +39,29 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(s.agent_timeout_seconds, 300)
         for name in ("script", "run", "dump", "console", "tinspect", "click", "logout", "gdisband"):
             self.assertIn(name, s.blocked_commands)
-        self.assertEqual(s.product, "wow_classic_beta")
+        self.assertEqual(s.product, "wowf")  # the live folder _forever_ has its own code
+
+    def test_the_product_code_of_each_client_folder(self):
+        from mforge.settings import product_for
+        self.assertEqual(product_for("_forever_"), "wowf")  # the live Forever client
+        self.assertEqual(product_for("_classic_"), "wow_classic")
+        self.assertEqual(product_for("_classic_beta_"), "wow_classic_beta")
+        self.assertEqual(product_for("_retail_"), "wow")
+        self.write_config(json.dumps({"wow_dir": str(self.tmp / "_forever_"), "product": "mine"}))
+        self.assertEqual(Settings.load(self.tmp).product, "mine")  # a configured code wins
+
+    def test_a_missing_product_says_which_ones_the_game_lists(self):
+        from mforge import fetch
+        wow = self.tmp / "World of Warcraft" / "_forever_"
+        wow.mkdir(parents=True)
+        (wow.parent / ".build.info").write_text(
+            "Branch!STRING:0|Version!STRING:0|Product!STRING:0\nus|1.60.1.70707|wowf\n", encoding="utf-8")
+        self.write_config(json.dumps({"wow_dir": str(wow)}))
+        self.assertEqual(fetch.installed_build(Settings.load(self.tmp)), "1.60.1.70707")
+        self.write_config(json.dumps({"wow_dir": str(wow), "product": "wow_classic_beta"}))
+        with self.assertRaises(ValidationError) as caught:
+            fetch.installed_build(Settings.load(self.tmp))
+        self.assertIn("it lists wowf", str(caught.exception))
 
     def test_values_come_from_config(self):
         self.write_config(json.dumps({"wow_dir": str(self.tmp / "_classic_"), "account": "A1",
