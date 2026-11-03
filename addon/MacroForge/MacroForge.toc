@@ -1,5 +1,8 @@
 ## Interface: 16001
-## Title: MacroForge
+## Title: MacroForge |cff33ff99[Core]|r
+## Category-enUS: Macros
+## Category: Macros
+## IconTexture: Interface\Icons\Trade_BlackSmithing
 ## Notes: Creates/updates macros from a generated data file. /mf applies, /mf live applies without reload, /mf ask sends a request to the PC watcher, /mf ui (or the minimap button) opens a window with the same actions, /mf export, /mf probe, /mf petcheck.
 ## Version: 1.5.0
 ## SavedVariables: MacroForgeExport, MacroForgeLog, MacroForgeProbe, MacroForgeRequests, MacroForgeSeen, MacroForgeAnswered, MacroForgeUI, MacroForgeHistory, MacroForgeOwned

@@ -2,7 +2,7 @@
 -- It only calls MacroForgeCore (MacroForge.lua); it never touches macros itself.
 local core = MacroForgeCore
 
-local ICON = "Interface\\Icons\\INV_Misc_Note_06"
+local ICON = "Interface\\Icons\\Trade_BlackSmithing"
 local FALLBACK_ICON = 134400  -- the question mark, present in every client
 local WIDTH, HEIGHT_COLLAPSED, HEIGHT_EXPANDED = 380, 412, 632
 local LEFT = 14

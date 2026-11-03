@@ -1,6 +1,10 @@
 ## Interface: 16001
-## Title: MacroForge slot {n}
-## Notes: Load-on-demand data slot for /mf live. Loaded once per UI session.
+## Title: MacroForge |cff808080[slot {n:03d}]|r
+## Notes: Data slot for /mf live and in-game requests, loaded by MacroForge when needed. Leave it enabled.
+## Category-enUS: Macros
+## Category: Macros
+## Group: MacroForge
+## IconTexture: Interface\Icons\Trade_BlackSmithing
 ## LoadOnDemand: 1
 ## DefaultState: enabled
 
