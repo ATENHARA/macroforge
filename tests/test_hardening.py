@@ -36,6 +36,12 @@ class AgentOutputTests(WatcherCase):
         self.assertEqual(agent._error_message(1, '{"result":"nope"}', ""), "nope")
         self.assertIn("exited with code 3", agent._error_message(3, "", ""))
 
+    def test_only_sign_in_failures_get_the_sign_in_hint(self):
+        self.assertEqual(agent.explain_auth("budget exceeded"), "budget exceeded")
+        self.assertEqual(agent.explain_auth("error 1401 in step 2"), "error 1401 in step 2")
+        for text in ("Invalid API key", "OAuth token revoked", "Please run /login", "Failed to authenticate"):
+            self.assertTrue(agent.explain_auth(text).startswith(agent.SIGN_IN_AGAIN), text)
+
     def test_a_macros_file_that_is_not_text_is_an_agent_error(self):
         def edit(workspace):
             (workspace / "macros.json").write_bytes(b'{"macros": [\xff\xfe]}')

@@ -245,9 +245,19 @@ def _error_message(returncode: int, out: str, err: str) -> str:
             message = result
     except ValueError:
         pass
-    if "login" in message.lower():
-        message += " (run `python macroforge.py login` once and use /login)"
-    return message[-300:]
+    return explain_auth(message)[-300:]
+
+
+AUTH_WORDS = ("login", "log in", "authenticat", "oauth", "credential", "api key")
+SIGN_IN_AGAIN = ("The Claude CLI needs you to sign in again: "
+                 "on the PC run python macroforge.py login.")
+
+
+def explain_auth(message: str) -> str:
+    """Turn a Claude CLI sign-in failure into a plain instruction (other messages are unchanged)."""
+    if any(word in message.lower() for word in AUTH_WORDS):
+        return f"{SIGN_IN_AGAIN} (Claude said: {message.strip()[:150]})"
+    return message
 
 
 def run_agent(settings: Settings, req: Request, export: dict | None,
@@ -272,7 +282,7 @@ def run_agent(settings: Settings, req: Request, export: dict | None,
         if not isinstance(parsed, dict):
             raise AgentError("agent output is not a JSON object")
         if parsed.get("is_error"):
-            raise AgentError(str(parsed.get("result"))[:300])
+            raise AgentError(explain_auth(str(parsed.get("result")))[:300])
         spec_file = workspace / "macros.json"
         if not spec_file.is_file() or spec_file.stat().st_size > MAX_SPEC_BYTES:
             raise AgentError("agent left no usable macros.json")
@@ -299,8 +309,31 @@ def extract_reply(text: str) -> str:
     return re.sub(r"\s*REPLY:\s*", " ", answer).strip()
 
 
+def signed_in(settings: Settings, timeout: int = 20) -> bool | None:
+    """Whether the Claude CLI has a sign-in (``claude auth status``; local, no request is made).
+
+    None when it cannot be told (CLI missing, too old for ``auth status``, odd output).
+    """
+    try:
+        proc = subprocess.run([find_claude(settings), "auth", "status"], capture_output=True,
+                              text=True, encoding="utf-8", errors="replace", timeout=timeout,
+                              env=agent_env(), stdin=subprocess.DEVNULL)
+        parsed = json.loads(proc.stdout)
+    except (MacroForgeError, OSError, ValueError, subprocess.SubprocessError):
+        return None
+    value = parsed.get("loggedIn") if isinstance(parsed, dict) else None
+    return value if isinstance(value, bool) else None
+
+
 def login(settings: Settings) -> int:
-    """Open the CLI interactively (clean environment) so the user can run ``/login`` once."""
+    """Sign the Claude CLI in (``claude auth login`` opens the browser).
+
+    A CLI too old for ``auth login`` is opened interactively instead, so the user can type
+    ``/login``.
+    """
     exe = find_claude(settings)
-    print(f"Starting {exe}\nType /login, finish the sign-in in your browser, then type /exit.\n")
+    print(f"Starting {exe} auth login: finish the sign-in in your browser.\n")
+    if subprocess.call([exe, "auth", "login"], env=agent_env()) == 0:
+        return 0
+    print("\nThat did not work; opening the CLI instead. Type /login, sign in, then type /exit.\n")
     return subprocess.call([exe], env=agent_env())

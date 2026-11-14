@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from .agent import find_claude
+from .agent import find_claude, signed_in
 from .assets import read_text
 from .checker import check_spec
 from .errors import MacroForgeError
@@ -211,16 +211,21 @@ def startup_file_exists() -> bool:
 
 
 def check_ai(settings: Settings) -> Check:
-    """The AI the watcher uses can be found (no network is used)."""
+    """The AI the watcher uses can be found and is signed in (asks the CLI; no network)."""
     if settings.agent_backend == "openai":
         return Check("AI", True, f"chat endpoint {settings.llm_base_url} (model "
                      f"{settings.agent_model or 'not set'}); test it with llm-test")
     try:
-        return Check("AI", True, f"Claude CLI at {Path(find_claude(settings)).name}")
+        name = Path(find_claude(settings)).name
     except MacroForgeError as exc:
         if not startup_file_exists():
             return Check("AI", True, "Claude CLI not found (only needed for in-game requests)")
         return Check("AI", False, str(exc)[:160], "install the Claude CLI, then macroforge login")
+    state = signed_in(settings)
+    if state is False:
+        return Check("AI", False, f"Claude CLI at {name} is not signed in (in-game requests fail)",
+                     "python macroforge.py login")
+    return Check("AI", True, f"Claude CLI at {name}" + (", signed in" if state else ""))
 
 
 def check_client_folder(settings: Settings) -> Check:

@@ -181,6 +181,14 @@ class WatcherAndAiTests(StatusCase):
         self.assertTrue(status.check_ai(missing).ok)  # not needed without in-game requests
         self.launcher()
         self.assertFalse(status.check_ai(missing).ok)
+        with mock.patch.object(status, "signed_in", return_value=False):
+            check = status.check_ai(self.settings)
+        self.assertFalse(check.ok)
+        self.assertIn("not signed in", check.detail)
+        self.assertEqual(check.action, "python macroforge.py login")
+        with mock.patch.object(status, "signed_in", return_value=True):
+            self.assertIn("signed in", status.check_ai(self.settings).detail)
+        self.assertNotIn("signed in", status.check_ai(self.settings).detail)  # cannot tell: not a failure
         chat = dataclasses.replace(self.settings, agent_backend="openai", agent_model="m")
         self.assertIn("llm-test", status.check_ai(chat).detail)
 

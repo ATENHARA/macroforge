@@ -262,7 +262,7 @@ def build_parser() -> argparse.ArgumentParser:
     add("report", cmd_report, "turn /mf probe results into reference/compat-<toc>.md")
     add("watch", cmd_watch,
         "answer in-game `/mf ask` requests with a restricted headless Claude")
-    add("login", cmd_login, "open the Claude CLI once so you can /login (needed by `watch`)")
+    add("login", cmd_login, "sign the Claude CLI in, in your browser (needed by `watch`)")
     sp = add("startup", cmd_startup, "run the watcher hidden at Windows login")
     sp.add_argument("--remove", action="store_true", help="remove the Startup launcher")
     sp.add_argument("--now", action="store_true", help="also start it right away")

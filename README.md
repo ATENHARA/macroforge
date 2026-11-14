@@ -111,7 +111,8 @@ costs a few cents of usage.
 
 **One-time:** install the standalone Claude Code CLI (PowerShell: `irm https://claude.ai/install.ps1 | iex`,
 or `winget install Anthropic.ClaudeCode`, or `npm install -g @anthropic-ai/claude-code`), then run
-`python macroforge.py login` and type `/login`. Being signed in to the desktop app is not enough; if the
+`python macroforge.py login` and finish the sign-in in your browser (run it again whenever an in-game reply
+says to sign in again; `status` checks it too). Being signed in to the desktop app is not enough; if the
 desktop app is a packaged (Microsoft Store style) install, its bundled copy is not visible outside it.
 
 **Run:** `python macroforge.py watch` (leave it open), or `python macroforge.py startup --now` to start it

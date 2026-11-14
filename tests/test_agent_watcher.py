@@ -228,7 +228,12 @@ class RejectionTests(WatcherCase):
         self.assertIn("Timed out after 300s", self.handle(runner=timeout))
         login = fake_process(rc=1, out=json.dumps({"result": "Not logged in · Please run /login"}))
         reply = self.handle(request(rid=2), runner=login)
-        self.assertRejected(reply, "Not logged in", "login")
+        self.assertRejected(reply, "Not logged in", "sign in again", "macroforge.py login")
+        expired = "Failed to authenticate: OAuth session expired and could not be refreshed"
+        for rid, runner in ((6, fake_process(rc=1, out=json.dumps({"result": expired}))),
+                            (7, fake_process(out=json.dumps({"is_error": True, "result": expired})))):
+            self.assertRejected(self.handle(request(rid=rid), runner=runner),
+                                "sign in again", "macroforge.py login", "OAuth session expired")
         self.assertRejected(self.handle(request(rid=3), runner=fake_process(out="<<<garbage>>>")))
         self.assertRejected(self.handle(request(rid=4), runner=fake_process(out="[1,2,3]")))
         self.assertRejected(self.handle(request(rid=5), runner=fake_process(
