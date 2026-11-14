@@ -1,5 +1,5 @@
-# Compatibility report - build 1.60.1 (toc 16001, build 70338)
-_Generated from `/mf probe` at 2026-10-10 17:55:04. Re-run on each client update; results are for this build only._
+# Compatibility report - build 1.60.1 (toc 16001, build 70888)
+_Generated from `/mf probe` at 2026-11-12 22:18:51. Re-run on each client update; results are for this build only._
 
 Control (made-up conditional) gave pos=`Y` neg=`N`.
 
@@ -71,7 +71,7 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | /worldmarker | yes |
 | /yell | yes |
 
-306 other slash commands exist (game and addons; not listed).
+332 other slash commands exist (game and addons; not listed).
 
 ## Conditionals
 `[X]` / `[noX]` are the live answers right now; `[X,noX]` is the state-independent test (N = real conditional, Y = ignored by the parser).
@@ -94,7 +94,7 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | `extrabar` | supported | N | Y | N |
 | `flyable` | supported | N | Y | N |
 | `flying` | supported | N | Y | N |
-| `form:1` | supported | N | Y | N |
+| `form:1` | supported | Y | N | N |
 | `group` | supported | N | Y | N |
 | `group:party` | supported | N | Y | N |
 | `group:raid` | supported | N | Y | N |
@@ -111,7 +111,7 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | `outdoors` | supported | Y | N | N |
 | `overridebar` | supported | N | Y | N |
 | `party` | supported | N | Y | N |
-| `pet` | supported | Y | N | N |
+| `pet` | supported | N | Y | N |
 | `petbattle` | supported | N | Y | N |
 | `possessbar` | supported | N | Y | N |
 | `pvpcombat` | supported | N | Y | N |
@@ -119,7 +119,7 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | `resting` | supported | N | Y | N |
 | `shapeshift` | supported | N | Y | N |
 | `spec:1` | supported | Y | N | N |
-| `stance:1` | supported | N | Y | N |
+| `stance:1` | supported | Y | N | N |
 | `stealth` | supported | N | Y | N |
 | `swimming` | supported | N | Y | N |
 | `talent:1/1` | supported | N | Y | N |
@@ -171,4 +171,4 @@ Control (made-up conditional) gave pos=`Y` neg=`N`.
 | hash_SlashCmdList | table |
 
 ## Script API
-19469 game functions and objects, 4932 members of 271 C_ namespaces recorded for the script checker.
+19937 game functions and objects, 4940 members of 271 C_ namespaces recorded for the script checker.
